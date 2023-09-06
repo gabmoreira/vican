@@ -1,131 +1,23 @@
 """
-	pgo.py
-	Gabriel Moreira
+    pgo.py
+    Gabriel Moreira
+    Aug 28, 2023
 """
-import time
-import copy
-import multiprocessing as mp
-from itertools import combinations
-
 import cv2 as cv
 import numpy as np
 import networkx as nx
+import time
 
-from scipy.sparse import csr_matrix
-from scipy.sparse.linalg import eigs, spsolve
-from scipy.sparse import diags
-from scipy.stats import vonmises
+from scipy.sparse import csr_matrix, diags
+from scipy.sparse.linalg import eigs, lsqr, cg, spsolve
 
-from time import time
 from typing import Tuple, Iterable, Callable
 from tqdm.auto import tqdm
 
-
-def langevin(k_r):
-    vec_r = np.random.normal(0,1,size=(3,))
-    vec_r = vonmises.rvs(k_r) * vec_r / np.linalg.norm(vec_r, ord=2)
-    R = cv.Rodrigues(vec_r)[0]
-    return R
+from linalg import SE3, project_SO3
 
 
-def rotx(theta: float) -> np.ndarray:
-    c = np.cos(theta)
-    s = np.sin(theta)
-    R = np.array([[1.0, 0.0, 0.0],
-                  [0.0,   c,  -s],
-                  [0.0,   s,   c]], dtype=np.float32)
-    return R
-
-def roty(theta: float) -> np.ndarray:
-    c = np.cos(theta)
-    s = np.sin(theta)
-    R = np.array([[c,   0.0,   s],
-                  [0.0, 1.0, 0.0],
-                  [-s,  0.0,   c]], dtype=np.float32)
-    return R
-
-def rotz(theta: float) -> np.ndarray:
-    c = np.cos(theta)
-    s = np.sin(theta)
-    R = np.array([[c,    -s, 0.0],
-                  [s,     c, 0.0],
-                  [0.0, 0.0, 1.0]], dtype=np.float32)
-    return R
-
-
-def rad2deg(rad: float) -> float:
-    return rad * 180 / np.pi
-
-def deg2rad(deg: float) -> float:
-    return deg * np.pi / 180
-
-def angle(r: np.ndarray) -> float:
-    rad = np.arccos( np.clip((np.trace(r)-1)/2, a_min=-1, a_max=1) )
-    return rad2deg(rad)
-
-def so3_distance(r1: np.ndarray, r2: np.ndarray) -> float:
-    assert r1.shape == (3,3) and r2.shape == (3,3)
-    return angle(r1.T @ r2)
-
-
-class SE3(object):
-    def __init__(self, **kwargs):
-        if 'pose' in kwargs.keys():
-            self._pose = kwargs['pose'].astype(np.float32)
-            self._R = self._pose[:3,:3]
-            self._t = self._pose[:3,-1]
-        else:
-            self._R = kwargs['R']
-            self._t = kwargs['t'].flatten()
-            self._pose = np.zeros((4,4), dtype=np.float32)
-            self._pose[:3,:3] += self._R
-            self._pose[:3,-1] += self._t
-            self._pose[-1,-1] += 1.0
-
-    def R(self) -> np.ndarray:
-        """
-            Return SO(3) matrix
-        """
-        return self._R
-
-    def t(self) -> np.ndarray:
-        """
-            Return translation
-        """
-        return self._t
-    
-    def inv(self):
-        """
-            Inverse of SE(3) transform 
-        """
-        inverted = np.zeros_like(self._pose)
-        inverted[-1,-1] += 1
-        inverted[:3,:3] += self._R.T
-        inverted[:3,-1] += -self._R.T @ self._t
-        return SE3(pose=inverted)
-
-    def apply(self, x : np.ndarray) -> np.ndarray:
-        """
-            Apply 3D transformation to 3 x n points
-        """
-        assert x.ndim == 2
-        assert x.shape[0] == 3
-        return self._R @ x + self._t.reshape([-1,1])
-
-    def __repr__(self) -> str:
-        repr = str(np.round(self._pose, 4))
-        return repr
-
-    def __matmul__(self, x):
-        return SE3(pose=self._pose @ x._pose)
-    
-
-def project_so3(x: np.ndarray):
-    u, _, vh = np.linalg.svd(x)
-    return u @ vh
-
-
-def optimize_gauge_so3(poses_a: Iterable[np.ndarray],
+def optimize_gauge_SO3(poses_a: Iterable[np.ndarray],
                        poses_b: Iterable[np.ndarray]) -> np.ndarray:
     """
     Finds SE(3) transformation G that aligns poses_a with poses_b
@@ -142,7 +34,7 @@ def optimize_gauge_so3(poses_a: Iterable[np.ndarray],
     return gauge_r
 
 
-def optimize_gauge_se3(poses_a: Iterable[SE3],
+def optimize_gauge_SE3(poses_a: Iterable[SE3],
                        poses_b: Iterable[SE3]) -> SE3:
     """
     Finds SE(3) transformation G that aligns poses_a with poses_b
@@ -161,7 +53,6 @@ def optimize_gauge_se3(poses_a: Iterable[SE3],
     gauge = SE3(R=gauge_r, t=gauge_t / len(poses_a))
 
     return gauge
-
 
 
 def sparse_blocks_so3(nodes: Iterable[str],
@@ -216,9 +107,11 @@ def sparse_blocks_so3(nodes: Iterable[str],
     return blocks, adj
 
 
-
 class PGO(object):
     def __init__(self, edges: dict, dtype):
+        """
+            Vanilla PGO
+        """
         self.dtype = dtype
 
         self.nodes = np.unique([n for e in edges.keys() for n in e])
@@ -295,7 +188,7 @@ class PGO(object):
 
         r_est = {}
         for i, node in enumerate(self.nodes):
-            r_est[node] = project_so3(evecs[i*3:i*3+3,:])
+            r_est[node] = project_SO3(evecs[i*3:i*3+3,:])
 
         # SO(3) ends here
         # SE(3) starts here
@@ -334,7 +227,6 @@ class PGO(object):
         return pose_est
 
 
-
 def bipartite_so3sync(src_edges: dict,
                       constraints: dict,
                       noise_model: Callable, 
@@ -343,13 +235,13 @@ def bipartite_so3sync(src_edges: dict,
                       dtype=np.float32) -> dict:
     """
         SO(3) synchronization in bipartite graphs
-        with edge constraints
+        with node constraints
     """
     src_nodes = np.unique([n for e in src_edges.keys() for n in e])
     print("Received graph with {} nodes {} edges".format(len(src_nodes), len(src_edges)))
     print("Applying constraints...")
     edges = {}
-    for e, v in tqdm(src_edges.items()):
+    for e, v in src_edges.items():
         if edge_filter(v):
             c = 'c' + e[0]               # camera id
             t = 't' + e[1].split('_')[0] # timestamp
@@ -368,13 +260,6 @@ def bipartite_so3sync(src_edges: dict,
                 edges[c,t] = {'pose': SE3(R=kr_c0, t=np.zeros(3)),
                               'k_r' : k_r}
 
-    graph = nx.Graph()
-    graph.add_edges_from(edges.keys())
-    
-    if not nx.is_connected(graph):
-        print("Error: Graph is disconnected!")
-        return None
-    
     nodes = np.unique([n for e in edges.keys() for n in e])
     node2idx = {n:i for i,n in enumerate(nodes)}
     n = len(nodes)
@@ -392,7 +277,7 @@ def bipartite_so3sync(src_edges: dict,
     b_data = np.zeros(18*m, dtype=dtype)
 
     a, b = 0, 0
-    for (c,t), e in tqdm(edges.items()):
+    for (c,t), e in edges.items():
         i = node2idx[c]
         j = node2idx[t]
         a_i[a]      = i
@@ -434,13 +319,13 @@ def bipartite_so3sync(src_edges: dict,
         print("\tSO(3) Eigengap:    {:1.3e}".format(abs(evals[3]/evals[2])))
 
         # Update R
-        R = evecs[:,:3] @ np.linalg.inv(evecs[:3,:3])
+        r = evecs[:,:3] @ np.linalg.inv(evecs[:3,:3])
 
         for i in range(n):
-            R[i*3:i*3+3,:] = project_so3(R[i*3:i*3+3,:])
+            r[i*3:i*3+3,:] = project_SO3(r[i*3:i*3+3,:])
             
         # Update lambda
-        RtildeR = pairwise_r @ R
+        RtildeR = pairwise_r @ r
         
         lbd_i    = np.zeros(n*9)
         lbd_j    = np.zeros(n*9)
@@ -448,7 +333,7 @@ def bipartite_so3sync(src_edges: dict,
         
         for i in range(evecs.shape[0] // 3):
             u, s, vt = np.linalg.svd(RtildeR[i*3:i*3+3,:])
-            R[i*3:i*3+3,:] = u @ vt
+            r[i*3:i*3+3,:] = u @ vt
             
             lbd_i[i*9:i*9+9] += 3*i + np.array([0,0,0,1,1,1,2,2,2], dtype=np.int32)
             lbd_j[i*9:i*9+9] += 3*i + np.array([0,1,2,0,1,2,0,1,2], dtype=np.int32)
@@ -460,12 +345,172 @@ def bipartite_so3sync(src_edges: dict,
     r_est = {}
     for i, node in enumerate(nodes):
         if node[0] == 'c':
-            r_est[node[1:]] = R[i*3:i*3+3,:]
+            r_est[node[1:]] = r[i*3:i*3+3,:]
         elif  node[0] == 't':
-            r_est[node[1:] + '_0'] = R[i*3:i*3+3,:]
+            r_est[node[1:] + '_0'] = r[i*3:i*3+3,:]
     return r_est
     
+
+def large_bipartite_so3sync(src_edges: dict,
+                            constraints: dict,
+                            noise_model: Callable, 
+                            edge_filter: Callable,
+                            maxiter: int,
+                            dtype=np.float32) -> dict:
+    """
+        SO(3) synchronization in large bipartite graphs
+        with node constraints
+    """
+    src_nodes = np.unique([n for e in src_edges.keys() for n in e])
+
+    print("Received graph with {} nodes {} edges".format(len(src_nodes),
+                                                         len(src_edges)))
     
+    print("Applying constraints", end=" ")
+    start = time.time()
+    # Build new graph by merging measurements from the same time stamp
+    edges = {}
+    for e, v in src_edges.items():
+        if edge_filter(v):
+            c = 'c' + e[0]               # camera id
+            t = 't' + e[1].split('_')[0] # timestamp
+
+            marker_id = e[1].split('_')[1]
+            r_m = constraints[marker_id].R()
+            r_0 = constraints['0'].R()
+
+            k_r   = noise_model(v['pose'])
+            kr_c0 = k_r * v['pose'].R() @ r_m @ r_0.T
+
+            if (c,t) in edges.keys():
+                edges[c,t]['pose']._R += kr_c0
+                edges[c,t]['k_r'] += k_r
+            else:
+                edges[c,t] = {'pose': SE3(R=kr_c0, t=np.zeros(3)),
+                              'k_r' : k_r}
+    print("({:.3f}s).".format(time.time()-start))
+
+    nodes          = np.unique([n for e in edges.keys() for n in e])
+    cam_nodes      = [n for n in nodes if n[0] == 'c']
+    time_nodes     = [n for n in nodes if n[0] == 't']
+    cam_node2idx   = {n : i for i, n in enumerate(cam_nodes)}
+    time_node2idx  = {n : i for i, n in enumerate(time_nodes)}
+    num_cam_nodes  = len(cam_nodes)
+    num_time_nodes = len(time_nodes)
+    num_edges      = len(edges)
+    print("Bipartite graph: {} cameras, {} timesteps, {} edges.".format(num_cam_nodes,
+                                                                        num_time_nodes,
+                                                                        num_edges))
+
+    print("Building {}x{} adjacency and {}x{} SO(3) sparse matrices".format(num_cam_nodes,
+                                                                            num_time_nodes,
+                                                                            3*num_cam_nodes,
+                                                                            3*num_time_nodes), end=" ")
+    start = time.time()
+    # Adjacency matrix triplets
+    a_i    = np.zeros(num_edges, dtype=np.int32)
+    a_j    = np.zeros(num_edges, dtype=np.int32)
+    a_data = np.zeros(num_edges, dtype=dtype)
+    # SO(3) pairwise block matrix triplets
+    b_i    = np.zeros(9*num_edges, dtype=np.int32)
+    b_j    = np.zeros(9*num_edges, dtype=np.int32)
+    b_data = np.zeros(9*num_edges, dtype=dtype)
+
+    a, b = 0, 0
+    for (c,t), e in edges.items():
+        i = cam_node2idx[c]
+        j = time_node2idx[t]
+        a_i[a]    = i
+        a_j[a]    = j
+        a_data[a] = e['k_r']
+            
+        b_i[b:b+9]    = 3*i + np.array([0,0,0,1,1,1,2,2,2], dtype=np.int32)
+        b_j[b:b+9]    = 3*j + np.array([0,1,2,0,1,2,0,1,2], dtype=np.int32)
+        b_data[b:b+9] = e['pose'].R().flatten()
+        b += 9
+        a += 1
+    print("({:.3f}s).".format(time.time()-start))
+
+    print("Building power graph", end=" ")
+    start = time.time()
+    pairwise_r_ct = csr_matrix((b_data,(b_i,b_j)), shape=(3*num_cam_nodes, 3*num_time_nodes))
+    adj_ct        = csr_matrix((a_data,(a_i,a_j)), shape=(num_cam_nodes, num_time_nodes))
+    deg_t         = np.asarray(np.sum(adj_ct, axis=0)).squeeze()
+
+    pairwise_pwr_r = pairwise_r_ct @ diags(1.0 / np.repeat(deg_t, 3), 0) @ pairwise_r_ct.T
+    pwr_adj        = adj_ct @ diags(1.0 / deg_t) @ adj_ct.T
+    pwr_deg        = np.asarray(np.sum(pwr_adj, axis=-1)).squeeze()
+    lbd_c          = diags(np.repeat(pwr_deg, 3), 0)
+    print("({:.3f}s).".format(time.time()-start))
+
+    # Main optimization loop
+    eigengap = 0
+    bar = tqdm(total=maxiter, dynamic_ncols=True, desc='Optimizing') 
+    for _ in range(maxiter): 
+        if eigengap >= 1e5:
+            break
+        laplacian = lbd_c - pairwise_pwr_r
+        laplacian = 0.5 * (laplacian.T + laplacian) 
+
+        evals, evecs = eigs(laplacian, k=5, sigma=-1e-6)
+        evals    = np.real(evals)
+        evecs    = np.real(evecs)
+        eigengap = abs(evals[3]/evals[2])
+
+        # Update R
+        r_c = evecs[:,:3] @ np.linalg.inv(evecs[:3,:3])
+        for i in range(num_cam_nodes):
+            r_c[i*3:i*3+3,:] = project_SO3(r_c[i*3:i*3+3,:])
+                
+        # Update lambda
+        r_tilde_r = pairwise_pwr_r @ r_c
+            
+        lbd_c_i    = np.zeros(num_cam_nodes*9, dtype=np.int32)
+        lbd_c_j    = np.zeros(num_cam_nodes*9, dtype=np.int32)
+        lbd_c_data = np.zeros(num_cam_nodes*9, dtype=dtype)
+            
+        for i in range(num_cam_nodes):
+            u, s, vt = np.linalg.svd(r_tilde_r[i*3:i*3+3,:])
+            r_c[i*3:i*3+3,:] = u @ vt
+                
+            lbd_c_i[i*9:i*9+9] += 3*i + np.array([0,0,0,1,1,1,2,2,2], dtype=np.int32)
+            lbd_c_j[i*9:i*9+9] += 3*i + np.array([0,1,2,0,1,2,0,1,2], dtype=np.int32)
+            lbd_c_data[i*9:i*9+9] += (u @ np.diag(s) @ u.T).flatten()
+            
+        lbd_c = csr_matrix((lbd_c_data,(lbd_c_i,lbd_c_j)), shape=(3*num_cam_nodes, 3*num_cam_nodes))
+
+        # Update lambda_T
+        r_t = pairwise_r_ct.T @ r_c
+        lbd_t_i    = np.zeros(num_time_nodes*9, dtype=np.int32)
+        lbd_t_j    = np.zeros(num_time_nodes*9, dtype=np.int32)
+        lbd_t_data = np.zeros(num_time_nodes*9, dtype=dtype)
+
+        for i in range(num_time_nodes):
+            u, s, vt = np.linalg.svd(r_t[i*3:i*3+3,:])
+            r_t[i*3:i*3+3,:] = u @ vt
+
+            lbd_t_i[i*9:i*9+9] += 3*i + np.array([0,0,0,1,1,1,2,2,2], dtype=np.int32)
+            lbd_t_j[i*9:i*9+9] += 3*i + np.array([0,1,2,0,1,2,0,1,2], dtype=np.int32)
+            lbd_t_data[i*9:i*9+9] += (u @ np.diag(1.0 / s) @ u.T).flatten()
+
+        lbd_t = csr_matrix((lbd_t_data,(lbd_t_i,lbd_t_j)), shape=(3*num_time_nodes,3*num_time_nodes))
+        pairwise_pwr_r = pairwise_r_ct @ lbd_t @ pairwise_r_ct.T
+
+        bar.set_postfix(evals0="{:1.3e}".format(evals[0]),
+                        evals1="{:1.3e}".format(evals[1]),
+                        evals2="{:1.3e}".format(evals[2]),
+                        eigengap="{:1.3e}".format(eigengap))
+        bar.update()
+
+    bar.close()
+    out = {}
+    for c, i in cam_node2idx.items():
+        out[c[1:]] = r_c[i*3:i*3+3,:]
+    for t, i in time_node2idx.items():
+        out[t[1:] + '_0'] = r_t[i*3:i*3+3,:]
+
+    return out
+
 
 def bipartite_se3sync(src_edges: dict,
                       constraints: dict,
@@ -473,20 +518,22 @@ def bipartite_se3sync(src_edges: dict,
                       noise_model_t: Callable,
                       edge_filter: Callable,
                       maxiter: int,
+                      lsqr_solver: str,
                       dtype=np.float32) -> dict:
     """
         SE(3) synchronization in bipartite graphs
-        with edge constraints
+        with node constraints
     """
-    r_est = bipartite_so3sync(src_edges,
-                              constraints,
-                              noise_model_r,
-                              edge_filter,
-                              maxiter)
+    r_est = large_bipartite_so3sync(src_edges,
+                                    constraints,
+                                    noise_model_r,
+                                    edge_filter,
+                                    maxiter,
+                                    dtype)
     
     nodes = []
     edges = {}
-    for i, (e, v) in enumerate(src_edges.items()):
+    for e, v in src_edges.items():
         if edge_filter(v):
             edges[e] = v
             t, marker_id = e[1].split('_')
@@ -503,11 +550,13 @@ def bipartite_se3sync(src_edges: dict,
     # Incidence matrix triples
     inc_i    = np.zeros(18*len(edges), dtype=np.int32)
     inc_j    = np.zeros(18*len(edges), dtype=np.int32)
-    inc_data = np.zeros(18*len(edges), dtype=np.float32)
+    inc_data = np.zeros(18*len(edges), dtype=dtype)
 
     a = 0
-    print("Building sparse {}x{} incidence matrix...".format(3*len(edges), 3*len(nodes)))
-    for e, v in tqdm(edges.items()):
+    print("Building sparse {}x{} incidence matrix".format(3*len(edges),
+                                                          3*len(nodes)), end=" ")
+    start = time.time()
+    for e, v in edges.items():
         c, m = e
         t, marker_id = m.split('_')
 
@@ -527,7 +576,7 @@ def bipartite_se3sync(src_edges: dict,
 
         inc_i[a:a+9]       = 3 * ei + np.array([0,0,0,1,1,1,2,2,2], dtype=np.int32)
         inc_j[a:a+9]       = 3 * ni + np.array([0,1,2,0,1,2,0,1,2], dtype=np.int32)
-        inc_data[a:a+9]    = k_t * np.eye(3, dtype=np.float32).flatten()
+        inc_data[a:a+9]    = k_t * np.eye(3, dtype=dtype).flatten()
 
         inc_i[a+9:a+18]    = 3 * ei + np.array([0,0,0,1,1,1,2,2,2], dtype=np.int32)
         inc_j[a+9:a+18]    = 3 * nj + np.array([0,1,2,0,1,2,0,1,2], dtype=np.int32)
@@ -536,152 +585,25 @@ def bipartite_se3sync(src_edges: dict,
         a += 18
 
     incidence_r = csr_matrix((inc_data,(inc_i,inc_j)), shape=(3*len(edges), 3*len(nodes)))
+    print("({:.3f}s).".format(time.time()-start))
 
-    print("Solving sparse linear system...")
-    t_est = spsolve(incidence_r.T @ incidence_r, incidence_r.T @ t_tilde)
+    print("Solving sparse linear system".format(lsqr_solver), end=" ")
+    start = time.time()
+    if lsqr_solver == "conjugate_gradient":
+        t_est, exit_code = cg(incidence_r.T @ incidence_r, incidence_r.T @ t_tilde)
+        assert exit_code == 0
+    elif lsqr_solver == "direct":
+        t_est, istop, itn, normr = lsqr(incidence_r, t_tilde)[:4]
+    print("({:.3f}s).".format(time.time()-start))
 
-    pose_est = {}
-    for i, n in enumerate(nodes):
+    # Build solution dictionary
+    out = {}
+    for n in nodes:
         idx = node2idx[n]
-        pose_est[n] = SE3(R=r_est[n], t=t_est[idx*3:idx*3+3])
+        out[n] = SE3(R=r_est[n], t=t_est[idx*3:idx*3+3])
     print("Done!")
-    return pose_est
-    
-    
-    
-    
-    
-    
+
+    return out
 
 
-class StreamPGO(object):
-    def __init__(self, node2idx: dict):
-        """
-        """
-        self.node2idx = node2idx
-        self._num_powernodes = len(self.node2idx)
 
-        self._adj_shape  = (self._num_powernodes, self._num_powernodes)
-        self._blk_shape  = (3*self._num_powernodes, 3*self._num_powernodes)
-        self._pairwise_r = mp.Array('d', np.zeros(self._blk_shape).flatten())
-        self._adj        = mp.Array('d', np.zeros(self._adj_shape).flatten())
-
-        self._num_edges  = mp.Value('i', 0)
-        self._num_nodes  = mp.Value('i', self._num_powernodes)
-        self._updated    = mp.Value('b', False)
-        
-        self._stop_event = mp.Event()
-        self._opt_event  = mp.Event()
-
-        print('StreamPGO started. Call stop() to close.')
-
-
-    def __getstate__(self):
-        state = self.__dict__.copy()
-
-        # Prevent pickling of _update_process process
-        state['_update_process'] = None
-        return state
-    
-
-    def status(self):
-        print("Daemon _update PID {}".format(self._update_process.pid))
-        print("Graph\n\t{} nodes, {} edges".format(self._num_nodes.value, self._num_edges.value))
-        print("Power Graph\n\t{} nodes, {} edges".format(self._num_powernodes, self._num_edges.value))
-
-
-    def nodes(self):
-        """
-        """
-        out = {n : SE3(R=self._powernodes_r[n], t=self._powernodes_t[n])
-               for n in self._powernodes_t.keys()}
-        return out
-
-
-    def run(self, stream):
-        """
-        """
-        self._update_process = mp.Process(target=self._update, args=(stream,), daemon=True)
-        self._update_process.start()
-        
-
-    def optimize(self):
-        """
-        """
-        #self._optimize_process = mp.Process(target=self._optimize)
-        #self._optimize_process.start()
-        #self._optimize_process.join()
-        return self._optimize()
-
-
-    def stop(self):
-        """
-            Stop background all processes
-        """
-        self._stop_event.set()
-        self._update_process.terminate()
-
-
-    def _update(self, stream: mp.Queue):
-        """
-            Update matrices with new pairwise measurements
-        """
-        while not self._stop_event.is_set():
-            try:
-                edges = stream.get()
-            except:
-                continue
-
-            powernodes = np.unique([n for e in edges.keys() for n in e if n in self.node2idx.keys()])
-            nodes      = np.unique([n for e in edges.keys() for n in e if n not in self.node2idx.keys()])
-
-            if len(powernodes) > 1 and len(nodes) == 1:
-                self._num_nodes.value += 1
-                nt = nodes[0]
-
-                sum_k_r = np.sum([e['k_r'] for e in edges.values()])
-
-                with self._pairwise_r.get_lock(), self._adj.get_lock(), self._num_edges.get_lock():
-                    adj        = np.frombuffer(self._adj.get_obj()).reshape(self._adj_shape)
-                    pairwise_r = np.frombuffer(self._pairwise_r.get_obj()).reshape(self._blk_shape)
-                    
-                    for ni, nj in combinations(powernodes, 2):
-                        i, j    = self.node2idx[ni], self.node2idx[nj]
-                        r_ij    = edges[ni,nt]['pose'].R() @ edges[nj,nt]['pose'].R().T
-                        kij_div = edges[ni,nt]['k_r'] * edges[ni,nt]['k_r'] / sum_k_r
-
-                        # Update adjecency
-                        adj[i,j] += kij_div
-                        adj[j,i] += kij_div
-
-                        # Update pairwise block matrix
-                        pairwise_r[i*3:i*3+3,j*3:j*3+3] += kij_div * r_ij
-                        pairwise_r[j*3:j*3+3,i*3:i*3+3] += kij_div * r_ij.T
-                        pairwise_r[i*3:i*3+3,i*3:i*3+3] += np.eye(3) / sum_k_r
-                        pairwise_r[j*3:j*3+3,j*3:j*3+3] += np.eye(3) / sum_k_r
-
-                        self._num_edges.value += 1
-
-                with self._updated.get_lock():
-                    self._updated.value = True
-
-
-    def _optimize(self):
-        """
-            Run PGO
-        """
-        with self._pairwise_r.get_lock(), self._adj.get_lock():
-            adj        = np.frombuffer(self._adj.get_obj()).reshape(self._adj_shape)
-            pairwise_r = np.frombuffer(self._pairwise_r.get_obj()).reshape(self._blk_shape)
-                    
-            lbd = 2.0 * np.diag(np.repeat(np.sum(adj, axis=-1), 3))
-            evals, evecs = eigs(lbd - pairwise_r, k=3, sigma=-1e-6)
-
-        evals = np.real(evals)
-        evecs = np.real(evecs)
-        evecs = evecs @ np.linalg.inv(evecs[:3,:3])
-
-        out = {}
-        for n,i in self.node2idx.items():
-            out[n] = SE3(R=project_so3(evecs[i*3:i*3+3,:]), t=np.zeros(3))
-        return out

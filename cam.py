@@ -10,7 +10,7 @@ import multiprocessing as mp
 from functools import partial
 from typing import Iterable
 
-from pgo import SE3
+from linalg import SE3
 
 class Camera(object):
     def __init__(self,
@@ -51,25 +51,30 @@ def estimate_pose_worker(im_filename: str,
                          cam: Camera,
                          aruco: str,
                          marker_size: float,
-                         corner_refine: str=None,
-                         brightness: int=140,
-                         contrast: int=130) -> dict:
+                         corner_refine: str,
+                         flags: str,
+                         brightness: int,
+                         contrast: int) -> dict:
     """
         Aruco PnP worker
     """
-    dictionary = cv.aruco.getPredefinedDictionary(eval('cv.aruco.' + aruco))
-    parameters = cv.aruco.DetectorParameters()
+    dictionary = cv.aruco.Dictionary_get(eval('cv.aruco.' + aruco))
+    parameters = cv.aruco.DetectorParameters_create()
+
     if corner_refine is not None:
         parameters.cornerRefinementMethod = eval('cv.aruco.' + corner_refine)
-    detector = cv.aruco.ArucoDetector(dictionary, parameters)
 
     im = cv.imread(im_filename)
     im = np.int16(im)
-    im = im * (contrast/127+1) - contrast + brightness
+
+    if contrast != 0:
+        im = im * (contrast/127+1) - contrast
+
+    im += brightness
     im = np.clip(im, 0, 255)
     im = np.uint8(im)
 
-    marker_corners, marker_ids, _ = detector.detectMarkers(im)
+    marker_corners, marker_ids, _ = cv.aruco.detectMarkers(im, dictionary, parameters=parameters)
 
     marker_points = np.array([[-1, 1, 0],
                               [1, 1, 0],
@@ -87,7 +92,7 @@ def estimate_pose_worker(im_filename: str,
                                         imagePoints=corners,
                                         cameraMatrix=cam.intrinsics,
                                         distCoeffs=cam.distortion,
-                                        flags=cv.SOLVEPNP_IPPE_SQUARE)
+                                        flags=eval('cv.' + flags))
             if not flag:
                 continue
             rvec, t = cv.solvePnPRefineLM(marker_points,
@@ -117,6 +122,9 @@ def estimate_pose_mp(im_filenames: Iterable[str],
                      aruco: str,
                      marker_size: float,
                      corner_refine: str,
+                     brightness: int,
+                     contrast: int,
+                     flags: str,
                      marker_ids: Iterable[str]) -> dict:
     """
         Multiprocessing pool of estimate_pose_worker
@@ -131,7 +139,10 @@ def estimate_pose_mp(im_filenames: Iterable[str],
     f = partial(estimate_pose_worker,
                 aruco=aruco, 
                 marker_size=marker_size, 
-                corner_refine=corner_refine)
+                corner_refine=corner_refine,
+                brightness=brightness,
+                contrast=contrast,
+                flags=flags)
         
     with mp.Pool(num_workers) as pool:
         out = pool.starmap(f, zip(im_filenames, cams))

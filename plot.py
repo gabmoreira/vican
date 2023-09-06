@@ -1,7 +1,3 @@
-"""
-    plot.py
-    Gabriel Moreira
-"""
 import cv2 as cv
 import numpy as np
 import plotly.express as px
@@ -34,20 +30,19 @@ def draw_marker(im: np.ndarray,
 
 def detect_and_draw(filename: str,
                     brightness: int=140,
-                    contrast: int=130):
+                    contrast: int=130,
+                    corner_refine: str='CORNER_REFINE_APRILTAG'):
     dictionary = cv.aruco.getPredefinedDictionary(cv.aruco.DICT_4X4_1000)
-    parameters = cv.aruco.DetectorParameters()
-    parameters.cornerRefinementMethod = cv.aruco.CORNER_REFINE_APRILTAG
-    detector = cv.aruco.ArucoDetector(dictionary, parameters)
+    parameters = cv.aruco.DetectorParameters_create()
+    parameters.cornerRefinementMethod = eval('cv.aruco.' + corner_refine)
 
     im = cv.imread(filename)
-    im = cv.imread(im_filename)
     im = np.int16(im)
     im = im * (contrast/127+1) - contrast + brightness
     im = np.clip(im, 0, 255)
     im = np.uint8(im)
     
-    marker_corners, marker_ids, _ = detector.detectMarkers(im)
+    marker_corners, marker_ids, _ = cv.aruco.detectMarkers(im, dictionary, parameters=parameters)
     marker_ids = list(map(str, marker_ids.flatten()))
 
     im = cv.cvtColor(im, cv.COLOR_BGR2GRAY)
