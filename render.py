@@ -1,17 +1,17 @@
 """
-    Rendering script
+    render.py
     Gabriel Moreira
-    Aug 25 2023
+    Sep 6 2023
     
     Run from terminal instructions (Important: Blender == 3.0)
-    Start an X11 server in one shell
+    If using Eevee, start an X11 server in one shell
         >sudo Xorg :1
     On a different shell
         >export DISPLAY=:1
     Run desired render
         >./blender/blender -b -noaudio /mnt/localdisk/gabriel/nodocker/smartshop/large_shop.blend --python /mnt/localdisk/gabriel/nodocker/smartshop/render.py
         >./blender/blender -b -noaudio /mnt/localdisk/gabriel/nodocker/smartshop/small_room.blend --python /mnt/localdisk/gabriel/nodocker/smartshop/render.py
-    Get the Xorg PID
+    Afterwards, get the Xorg PID
         >nvidia-smi 
     Kill the server
         >sudo kill -9 [PID]
@@ -76,16 +76,17 @@ def save_cameras(path: str):
     print("Cameras' dictionaries saved to {}".format(path))
 
 
-def load_aruco(texture_path,
-               specular=0.08,
-               roughness=0.75,
-               metalic=0.0,
-               sheen=0.0):
+def load_aruco(texture_path: str,
+               size: float,
+               specular: float=0.08,
+               roughness: float=0.75,
+               metalic: float=0.0,
+               sheen: float=0.0):
     """
         Add an Aruco cube
     """
     # Add cube
-    bpy.ops.mesh.primitive_cube_add(size=2, location=(1,1,1), scale=(.575/2, .575/2, .575/2))
+    bpy.ops.mesh.primitive_cube_add(size=2, location=(1,1,1), scale=(size/2, size/2, size/2))
     box_obj = bpy.context.selected_objects[0]
     box_obj.name = 'aruco_cube'
 
@@ -418,9 +419,9 @@ def render_cube_calib(output_path: str,
         os.mkdir(os.path.join(output_path, str(t)))
         
         move_obj(obj_name="aruco_cube",
-                 location=mu.Vector((np.random.uniform(5.6, 6.2),
-                                     np.random.uniform(20.7, 22),
-                                     np.random.uniform(0.15, 0.8))),
+                 location=mu.Vector((np.random.uniform(5.8, 6.0),
+                                     np.random.uniform(21.2, 22.3),
+                                     np.random.uniform(0.6, 1.6))),
                  euler_angles=mu.Euler((np.random.rand()*2*np.pi,
                                         np.random.rand()*2*np.pi,
                                         np.random.rand()*2*np.pi), "XYZ"))
@@ -435,30 +436,24 @@ def render_cube_calib(output_path: str,
     
 if __name__ == "__main__" :
     root               = "/mnt/localdisk/gabriel/nodocker/smartshop"
-    # Where all camera images and metadata should go
-    render_path        = os.path.join(root, "large_shop_render")
-    # Where data for cube calibration should go
+    render_path        = os.path.join(root, "small_room_render")
     cube_calib_path    = os.path.join(root, os.path.join(root, "cube_calib_render"))
     aruco_texture_path = os.path.join(root, "aruco_texture.png")
 
-    # force rendering to GPU
     bpy.context.scene.cycles.device = 'GPU'
     cpref = bpy.context.preferences.addons['cycles'].preferences
     cpref.compute_device_type = 'CUDA'
-    # Use GPU devices only
     cpref.get_devices()
     for device in cpref.devices:
         device.use = True if device.type == 'CUDA' else False
 
-    # RENDER SETTINGS
     for scene in bpy.data.scenes:
         scene.render.resolution_x = 1280
         scene.render.resolution_y = 720
         scene.render.resolution_percentage = 100
         scene.render.use_border = False
         scene.render.engine = 'CYCLES'
-        # Higher value = better quality but slower
-        scene.cycles.samples = 1000
+        scene.cycles.samples = 100
         scene.cycles.use_denoising = True
         scene.cycles.denoiser = 'OPENIMAGEDENOISE'
         # IF USING EEVEE UNCOMMENT BELOW 
@@ -469,19 +464,19 @@ if __name__ == "__main__" :
         #scene.eevee.bokeh_threshold    = 6
         #scene.eevee.bokeh_max_size     = 190
         
-    # LOAD ARUCO CUBE
     clear_aruco_cube()
-    load_aruco(texture_path=aruco_texture_path)
- 
-
+    load_aruco(texture_path=aruco_texture_path,
+               size=0.575)
+    
+    """
     # GENERATE RENDERS FOR CUBE CALIBRATION    
     render_cube_calib(output_path=cube_calib_path,
                       cam_name="camera_471",
-                      num_frames=1000)
+                      num_frames=2000)
     """
         
     # GENERATE RENDERS FOR CAMERA CALIBRATION
-    num_timesteps = 5000
+    num_timesteps = 1300
     
     if not os.path.isdir(render_path):
         os.mkdir(render_path)
@@ -494,40 +489,31 @@ if __name__ == "__main__" :
     
     # When lauching several processes to prevent name collision
     num_cores = 8
-    core_id   = 7 # 0...num_cores-1 (always zero if only launching one process)
+    core_id   = 0 # 0...num_cores-1 (always zero if only launching one process)
     offset    = 0
     np.random.seed(core_id + int(time()))
         
     for i in range(num_timesteps):
-        # Next timestep
         t = i * num_cores + core_id + offset
-
-        # Generate new aruco_marker pose 
         print("\nCurrent time instant t={}".format(t))
         
         # EDIT FUNCTION TO GENERATE ARUCO POSES 
         visible_cam_ids, location, euler_angles = aruco_cube_pose_candidate(large_shop_random_pose_gen)
 
         # Check if dictionary with aruco_cube poses already exists
-        dict_name = "aruco_cube_pose_" + str(core_id) + ".json"
+        dict_name = "object_pose_" + str(core_id) + ".json"
         aruco_cube_pose = {}
         if dict_name in os.listdir(render_path):
             with open(os.path.join(render_path, dict_name)) as f:
                 aruco_cube_pose = json.load(f)
             print("Loaded JSON file with aruco_marker poses")
 
-        # Update dictionary and save
         aruco_cube_pose[t] = {'t' : np.array(location).tolist(),
                               'R' : np.array(euler_angles.to_matrix()).tolist()}
         
         with open(os.path.join(render_path, dict_name), 'w') as f:
             json.dump(aruco_cube_pose, f)
 
-        # Create timestamp directory
         os.mkdir(os.path.join(render_path, str(t)))  
-        # Render
         render(output_path=os.path.join(render_path, str(t)),
                cam_ids=visible_cam_ids)
-        """
-    
-                    

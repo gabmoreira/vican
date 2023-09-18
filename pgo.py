@@ -1,12 +1,11 @@
 """
     pgo.py
     Gabriel Moreira
-    Aug 28, 2023
+    Sep 18, 2023
 """
-import cv2 as cv
+import time
 import numpy as np
 import networkx as nx
-import time
 
 from scipy.sparse import csr_matrix, diags
 from scipy.sparse.linalg import eigs, lsqr, cg, spsolve
@@ -15,44 +14,6 @@ from typing import Tuple, Iterable, Callable
 from tqdm.auto import tqdm
 
 from linalg import SE3, project_SO3
-
-
-def optimize_gauge_SO3(poses_a: Iterable[np.ndarray],
-                       poses_b: Iterable[np.ndarray]) -> np.ndarray:
-    """
-    Finds SE(3) transformation G that aligns poses_a with poses_b
-    as in min sum|| pose_a - pose_b @ G ||
-    """
-    assert len(poses_a) == len(poses_b)
-
-    sum = np.zeros((3,3), dtype=np.float64)
-    for a, b in zip(poses_a, poses_b):
-        sum += a.T @ b
-    
-    u, _, vh = np.linalg.svd(sum.T)
-    gauge_r = u @ vh
-    return gauge_r
-
-
-def optimize_gauge_SE3(poses_a: Iterable[SE3],
-                       poses_b: Iterable[SE3]) -> SE3:
-    """
-    Finds SE(3) transformation G that aligns poses_a with poses_b
-    as in min sum|| pose_a - pose_b @ G ||
-    """
-    assert len(poses_a) == len(poses_b)
-
-    sum     = np.zeros((3,3), dtype=np.float64)
-    gauge_t = np.zeros((3,1), dtype=np.float64) 
-    for a, b in zip(poses_a, poses_b):
-        sum += a.R().T @ b.R()
-        gauge_t += b.R().T @ (a.t() - b.t()).reshape((-1,1))
-    
-    u, _, vh = np.linalg.svd(sum.T)
-    gauge_r = u @ vh
-    gauge = SE3(R=gauge_r, t=gauge_t / len(poses_a))
-
-    return gauge
 
 
 def sparse_blocks_so3(nodes: Iterable[str],
@@ -115,7 +76,6 @@ class PGO(object):
         self.dtype = dtype
 
         self.nodes = np.unique([n for e in edges.keys() for n in e])
-        print("\n----------------* PGO *----------------")
         print('Received {} edges.'.format(len(edges)))
         print('Total of {} nodes.'.format(len(self.nodes)))
 
@@ -157,7 +117,7 @@ class PGO(object):
         else:
             print("Unknown key!")
             return None
-
+        
 
     def optimize(self,
                  sigma: float=-1e-6) -> dict:
@@ -190,9 +150,7 @@ class PGO(object):
         for i, node in enumerate(self.nodes):
             r_est[node] = project_SO3(evecs[i*3:i*3+3,:])
 
-        # SO(3) ends here
-        # SE(3) starts here
-
+        # SO(3) ends here SE(3) starts here
         pseudoedges = {}
         for nodes, e in self.edges.items():
             pseudoedges[nodes] = {'pose' : SE3(R=r_est[nodes[0]] @ r_est[nodes[1]].T, t=np.zeros((3,1))), 'k_t' : e['k_t']}
@@ -223,7 +181,7 @@ class PGO(object):
         t_est = spsolve(opt_laplacian, b)
         pose_est = {n : SE3(R=r_est[n], t=t_est[i*3:i*3+3]) for i,n in enumerate(self.nodes)}
 
-        print("Done!")
+        print("Done.")
         return pose_est
 
 
@@ -250,7 +208,7 @@ def bipartite_so3sync(src_edges: dict,
             r_m = constraints[marker_id].R()
             r_0 = constraints['0'].R()
 
-            k_r   = noise_model(v['pose'])
+            k_r   = noise_model(v)
             kr_c0 = k_r * v['pose'].R() @ r_m @ r_0.T
 
             if (c,t) in edges.keys():
@@ -379,7 +337,7 @@ def large_bipartite_so3sync(src_edges: dict,
             r_m = constraints[marker_id].R()
             r_0 = constraints['0'].R()
 
-            k_r   = noise_model(v['pose'])
+            k_r   = noise_model(v)
             kr_c0 = k_r * v['pose'].R() @ r_m @ r_0.T
 
             if (c,t) in edges.keys():
@@ -560,13 +518,12 @@ def bipartite_se3sync(src_edges: dict,
         c, m = e
         t, marker_id = m.split('_')
 
-        k_t = noise_model_t(v['pose'])
+        k_t = noise_model_t(v)
 
         # Contraint between marker '0' and marker marker_id
         p_0_marker_id = constraints['0'] @ constraints[marker_id].inv()
         r_c_marker_id = r_est[c] @ r_est[t + '_0'].T @ p_0_marker_id.R()
 
-        # \tilde{t}_{c,m^{(t)}} + R_c R_{m^{(t)}}^\top \bar{t}_{m,m_0}
         tilde_c_0 = k_t * (v['pose'].t() + r_c_marker_id @ p_0_marker_id.inv().t())
 
         ei = edge2idx[e]
@@ -606,4 +563,35 @@ def bipartite_se3sync(src_edges: dict,
     return out
 
 
+def object_bipartite_se3sync(src_edges: dict,
+                             noise_model_r: Callable,
+                             noise_model_t: Callable,
+                             edge_filter: Callable,
+                             maxiter: int,
+                             lsqr_solver: str,
+                             dtype=np.float32) -> dict:
+    """
+        Operates like bipartite_se3sync but for calibrating 
+        objects instead of cameras
+    """
+    edges = {}
+    for k, v in src_edges.items():
+        t, marker_id = k[1].split('_')
+        edges[marker_id, t + '_0'] = {'pose'            : v['pose'].inv(),
+                                      'corners'         : v['corners'],
+                                      'reprojected_err' : v['reprojected_err'],
+                                      'im_filename'     : v['im_filename']}
+        
+    obj_pose_est = bipartite_se3sync(edges,
+                                     constraints={'0' : SE3(pose=np.eye(4))},
+                                     noise_model_r=noise_model_r,
+                                     noise_model_t=noise_model_t,
+                                     edge_filter=edge_filter,
+                                     maxiter=maxiter,
+                                     lsqr_solver=lsqr_solver,
+                                     dtype=dtype)
 
+    # This stores the poses of all the markers in the cube
+    obj_pose_est = {k : v for k,v in obj_pose_est.items() if '_' not in k}
+
+    return obj_pose_est

@@ -1,11 +1,10 @@
 """
     cam.py
     Gabriel Moreira
-    Thu Apr 13, 2023
+    Sep 18, 2023
 """
 import cv2 as cv
 import numpy as np
-import plotly.express as px
 import multiprocessing as mp
 from functools import partial
 from typing import Iterable
@@ -18,18 +17,22 @@ class Camera(object):
                  intrinsics: np.ndarray,
                  distortion: np.ndarray,
                  extrinsics: SE3,
-                 width: int=1280,
-                 height: int=720):
-        
+                 resolution_x: int,
+                 resolution_y: int):
+        """
+            Stores camera information
+        """
         self.id = id
-        self.intrinsics = intrinsics.squeeze()
-        self.distortion = distortion.squeeze()
-        self.extrinsics = extrinsics
-        self.width      = width
-        self.height     = height
+        self.intrinsics   = intrinsics.squeeze()
+        self.distortion   = distortion.squeeze()
+        self.extrinsics   = extrinsics
+        self.resolution_x = resolution_x
+        self.resolution_y = resolution_y
 
     def __repr__(self) -> str:
-        repr = "Camera {}x{} id={}\n".format(self.height, self.width, self.id)
+        repr = "Camera {}x{} id={}\n".format(self.resolution_y,
+                                             self.resolution_x,
+                                             self.id)
         repr += "Intrinsics:\n"
         repr += str(self.intrinsics)
         repr += "\nDistortion:\n"
@@ -56,13 +59,23 @@ def estimate_pose_worker(im_filename: str,
                          brightness: int,
                          contrast: int) -> dict:
     """
-        Aruco PnP worker
+        Reads image from im_filename, estimates pose of all
+        arUco markers detected in the image and returns an edge
+        dictionary. 
+        Keys of the edge are (<camera_id>, <timestamp>_<marker_id>)
+        Values are dicts with pose (SE3), corners (np.ndarray), 
+        reprojection error (float) and image filename (str)
     """
     dictionary = cv.aruco.Dictionary_get(eval('cv.aruco.' + aruco))
     parameters = cv.aruco.DetectorParameters_create()
 
     if corner_refine is not None:
         parameters.cornerRefinementMethod = eval('cv.aruco.' + corner_refine)
+    parameters.cornerRefinementMinAccuracy = 0.05
+    parameters.adaptiveThreshConstant = 10
+    parameters.cornerRefinementMaxIterations = 50
+    parameters.adaptiveThreshWinSizeStep = 5
+    parameters.adaptiveThreshWinSizeMax = 35
 
     im = cv.imread(im_filename)
     im = np.int16(im)
@@ -106,7 +119,7 @@ def estimate_pose_worker(im_filename: str,
             reprojected = cv.projectPoints(marker_points, R, t,
                                            cam.intrinsics, cam.distortion)[0].squeeze()
             
-            reprojection_err = np.linalg.norm(reprojected - corners, axis=1).mean()
+            reprojection_err = np.linalg.norm(reprojected - corners, axis=1).max()
             key = (cam.id, gen_marker_uid(im_filename, marker_id))
 
             output[key] = {'pose' : pose,
@@ -127,7 +140,14 @@ def estimate_pose_mp(im_filenames: Iterable[str],
                      flags: str,
                      marker_ids: Iterable[str]) -> dict:
     """
-        Multiprocessing pool of estimate_pose_worker
+        Multiprocessing pool of estimate_pose_worker. Iterates
+        through all images provided in im_filenames, detects arUco
+        markers and returns dictionary. 
+        Keys are (<camera_id>, <timestamp>_<marker_id>)
+        Values are dicts with pose (SE3), corners (np.ndarray), 
+        reprojection error (float) and image filename (str)
+
+        im_filenames and cams should be 1-to-1 correspondence
     """
     assert len(im_filenames) == len(cams)
     print("\nMarker detection")
