@@ -22,8 +22,8 @@ To optimize a set of camera poses given the camera-object edges use `bipartite_s
 
 ## Complete pipeline for camera network calibration using arUco markers:
 The `bipartite_se3sync` and `object_bipartite_se3sync` are agnostic to the type of object used to calibrate the cameras. If you want to run the code with arUco markers, you should have a folder following the naming convention for the camera pose estimation folder `<root>/<timestep>/<camera_id>.jpg` and camera data stored in `<root>/cameras.json`. For object pose estimation you should have a folder with the naming convention `<objectroot>/<timestep>/<timestep>.jpg`. Then
-* **Object pose estimation**: `object_dataset=Dataset(root=<objectroot>)` -> `edges=estimate_pose_mp(object_dataset,...)` -> `object_edges = objectbipartite_se3sync(edges,...)`
-* **Camera pose estimation**: `dataset=Dataset(root=<objectroot>)` -> `edges=estimate_pose_mp(dataset,...)` -> `objectbipartite_se3sync(edges,object_edges,...)`
+* **Object pose estimation**: `object_dataset=Dataset(<objectroot>)` -> `edges=estimate_pose_mp(object_dataset,...)` -> `object_edges = object_bipartite_se3sync(src_edges=edges,...)`
+* **Camera pose estimation**: `dataset=Dataset(<root>)` -> `edges=estimate_pose_mp(dataset,...)` -> `objectbipartite_se3sync(src_edges=edges,constraints=object_edges,...)`
 
 See `main.ipynb`for further details.
 
