@@ -14,7 +14,7 @@ Blender camera metadata (pose, intrinsics, resolution, clipping) will be stored 
 ArUco cube pose per each time step will be stored in dictionaries `<dataset name>object_pose_<n>.json`. The n just specifies the number of the core that created that file.
 
 ## Camera calibration
-To optimize a set of camera poses given the camera-object edges use `bipartite_se3sync`. The arguments are
+To optimize a set of camera poses given the camera-object edges use `pgo.bipartite_se3sync`. The arguments are
 
 * **src_edges**: a dictionary with keys (camera id, timestep_markerid), for example the edge ("4", "10_0") corresponds to the pose of marker with ID "0" detected at time t=0 by camera with ID "4". The values of the dataset are a dictionary containing the pose (SE3), reprojected_err (float), corners (np.ndarray), and im_filename (str). If you use the provided datasets or other datasets containing arUco markers you can call `estimate_pose_mp` to generate these edges from the image folder directly;
 * **noise_model_r**: function (float) that estimates concentration of Langevin noise from the edge dictionary;
@@ -24,9 +24,9 @@ To optimize a set of camera poses given the camera-object edges use `bipartite_s
 * **lsqr_solver**: "conjugate_gradient" or "direct". Use former for large graphs.
 
 ## Object calibration
-In order to optimize the poses of object nodes / markers captured by static camera use `object_bipartite_se3sync`. The arguments are similar to those used for camera calibration with a different naming convention i.e., the **src_edges** keys are of the form `(timestep, timestep_markerid)`, where markerid is the arUco marker ID in the case of arUco markers.
+In order to optimize the poses of object nodes / markers captured by static camera use `pgo.object_bipartite_se3sync`. The arguments are similar to those used for camera calibration with a different naming convention i.e., the **src_edges** keys are of the form `(timestep, timestep_markerid)`, where markerid is the arUco marker ID in the case of arUco markers.
 
 ## Pipeline for camera network calibration using arUco markers:
-The `bipartite_se3sync` and `object_bipartite_se3sync` are agnostic to the type of object used to calibrate the cameras. If you want to run the code with arUco markers, you should have a folder following the naming convention `<root>/<timestep>/<camera_id>.jpg` and camera data stored in `<root>/cameras.json`. From here, you initialize a dataset instance `Dataset(root=<root>)` and run `estimate_pose_mp` (see notebook for other arguments). This will return an edge dictionary that can then be fed to the bipartite PGO solver `bipartite_se3sync`.
+The `pgo.bipartite_se3sync` and `pgo.object_bipartite_se3sync` are agnostic to the type of object used to calibrate the cameras. If you want to run the code with arUco markers, you should have a folder following the naming convention `<root>/<timestep>/<camera_id>.jpg` and camera data stored in `<root>/cameras.json`. From here, you initialize a dataset instance `Dataset(root=<root>)` and run `cam.estimate_pose_mp` (see notebook for other arguments). This will return an edge dictionary that can then be fed to the bipartite PGO solver `pgo.bipartite_se3sync`.
 
 Sep, 2023
