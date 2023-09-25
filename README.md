@@ -15,11 +15,11 @@ The first step is object calibration. Once this is done we can optimize the came
 * Start by calling `estimate_pose_mp` in order to compute camera-marker poses (via PnP) for a collection of images (you can avoid this step by downloading **cube_calib/cam_marker_edges.pt** directly). From here, to optimize the object marker poses call `object_bipartite_se3sync`. The arguments are similar to those used for camera calibration with a different naming convention i.e., the **src_edges** keys are of the form `(timestep, timestep_markerid)`, with one image per folder, where the marker id is the arUco marker ID, in the case of arUco markers.
   
 ## Camera pose estimation
-Start by calling `estimate_pose_mp` in order to compute camera-marker poses (via PnP). You can avoid this step by downloading **large_shop/cam_marker_edges.pt** or **small_room/cam_marker_edges.pt** directly.
+Start by calling `estimate_pose_mp` in order to compute camera-marker poses via PnP (you can avoid this step by downloading **large_shop/cam_marker_edges.pt** or **small_room/cam_marker_edges.pt** directly).
 To optimize a set of camera poses given the camera-object edges computed earlier, call `bipartite_se3sync`. The arguments are
-* **src_edges**: a dictionary with keys (camera id, timestep_markerid), for example the edge ("4", "10_0") corresponds to the pose of marker with ID "0" detected at time t=0 by camera with ID "4". The values of the dataset are a dictionary containing the pose (SE3), reprojected_err (float), corners (np.ndarray), and im_filename (str). If you use the provided datasets or other datasets containing arUco markers you can call `estimate_pose_mp` to generate these edges from the image folder directly;
-* **noise_model_r**: function (float) that estimates concentration of Langevin noise from the edge dictionary;
-* **noise_model_t**: function (float) that estimates precision of Gaussian noise from from the edge dictionary;
+* **src_edges**: a dictionary with keys (camera id, timestep_markerid), for example the edge ("4", "10_0") corresponds to the pose of marker with ID "0" detected at time t=0, in the reference frame of camera with ID "4". The values of the dataset are a dictionary containing "pose" : SE3, "reprojected_err" : float, "corners" : np.ndarray, "im_filename" : str. 
+* **noise_model_r**: Callable (float) that estimates concentration of Langevin noise given the edge dictionary;
+* **noise_model_t**: Callable (float) that estimates precision of Gaussian noise from given the edge dictionary;
 * **edge_filter**: functional (bool) that discards edges based on the edge dictionary;
 * **maxiter**: maximum primal-dual iterations;
 * **lsqr_solver**: "conjugate_gradient" or "direct". Use the former for large graphs.
@@ -27,11 +27,12 @@ To optimize a set of camera poses given the camera-object edges computed earlier
 # Pipeline for camera network calibration using arUco markers:
 The `bipartite_se3sync` and `object_bipartite_se3sync` are agnostic to the type of object used to calibrate the cameras. However, you should follow naming convention for the camera pose estimation folder `<root>/<timestep>/<camera_id>.jpg` and camera data stored in `<root>/cameras.json`. For object pose estimation you should have a folder with the naming convention `<objectroot>/<timestep>/<timestep>.jpg`. Then
 * **Object pose estimation**: `object_dataset=Dataset(<objectroot>)` -> `edges=estimate_pose_mp(object_dataset,...)` -> `object_edges = object_bipartite_se3sync(src_edges=edges,...)`
-* **Camera pose estimation**: `dataset=Dataset(<root>)` -> `edges=estimate_pose_mp(dataset,...)` -> `objectbipartite_se3sync(src_edges=edges,constraints=object_edges,...)`
+* **Camera pose estimation**: `dataset=Dataset(<root>)` -> `edges=estimate_pose_mp(dataset,...)` -> `bipartite_se3sync(src_edges=edges,constraints=object_edges,...)`
+The output is a dictionary with poses w.r.t. world frame.
 
 # General camera network calibration
 If you don't have arUco markers in your object, but have computed relative camera-object poses and know the relative transformations between faces/nodes of the object, then you can simply use `objectbipartite_se3sync(src_edges=edges,constraints=object_edges,...)`, provided the edges are in the same format as above.
 
-See `main.ipynb`for further details.
+See `main.ipynb`for examples.
 
 Sep, 2023
