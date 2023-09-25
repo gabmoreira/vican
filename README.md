@@ -1,5 +1,5 @@
 # VICAN: Very Efficient Calibration Algorithm for Large Camera Networks
-VICAN uses a primal-dual bipartite PGO solver to 1) calibrate an object 2) estimate poses of a camera network. For a tutorial please check the provided Jupyter notebook `main.ipynb`
+VICAN uses a primal-dual bipartite PGO solver to 1) calibrate an object 2) estimate poses of a camera network. See the [extended paper](https://github.com/gabmoreira/vican/blob/main/extended_paper.pdf) for details. A Jupyter notebook is provided in `main.ipynb`
 The examples provided make use of a cube covered with 24 arUco markers. 
 
 # Dataset
