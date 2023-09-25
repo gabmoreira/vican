@@ -9,7 +9,7 @@ import multiprocessing as mp
 from functools import partial
 from typing import Iterable
 
-from linalg import SE3
+from .geometry import SE3
 
 class Camera(object):
     def __init__(self,

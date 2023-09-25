@@ -7,8 +7,8 @@ import os
 import json
 import numpy as np
 
-from pgo import SE3
-from cam import Camera
+from .geometry import SE3
+from .cam import Camera
 
 
 class Dataset(object):

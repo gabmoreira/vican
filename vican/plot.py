@@ -7,8 +7,8 @@ import cv2 as cv
 import numpy as np
 import plotly.express as px
 
-from cam import Camera
-from linalg import SE3
+from .cam import Camera
+from .geometry import SE3
 
 from typing import Iterable
 

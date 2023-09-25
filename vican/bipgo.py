@@ -12,7 +12,7 @@ from scipy.sparse.linalg import eigs, lsqr, cg
 from typing import Callable
 from tqdm.auto import tqdm
 
-from linalg import SE3, project_SO3
+from .geometry import SE3, project_SO3
 
 
 def bipartite_so3sync(src_edges: dict,
