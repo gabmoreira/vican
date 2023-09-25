@@ -17,7 +17,21 @@ def draw_marker(im: np.ndarray,
                 marker_corners: np.ndarray,
                 marker_id: str) -> np.ndarray:
     """
-        Draws marker corners on im
+        Draws arUco marker on image.
+
+        Parameters
+        ----------
+        im : np.ndarray
+            Source image (H,W,3) with detected marker.
+        marker_corners: np.ndarray
+            X and Y locations of 4 corners as a (4,2) array.
+        marker_id: str
+            arUco marker ID.
+
+        Returns
+        -------
+        im : np.ndarray 
+            Image with marker drawn.
     """
     marker_corners = marker_corners.reshape((4, 2))
     top_l, top_r, bottom_r, bottom_l = marker_corners.astype(np.int32)
@@ -37,18 +51,34 @@ def draw_marker(im: np.ndarray,
     return im
 
 
-def detect_and_draw(filename: str,
+def detect_and_draw(im_filename: str,
                     brightness: int=140,
                     contrast: int=130,
                     corner_refine: str='CORNER_REFINE_APRILTAG') -> np.ndarray:
     """
-        Reads image, detects arUco markers and draws them
+        Detects and draws arUco markers on image.
+
+        Parameters
+        ----------
+        im_filename : str
+            Image filename.
+        brightness : int
+            Image preprocessing brightness correction.
+        contrast : int
+            Image preprocessing contrast correction.
+        corner_refine: str
+            Corner refinement option (see OpenCV options).
+
+        Returns
+        -------
+        im : np.ndarray 
+            Image with marker drawn.
     """
     dictionary = cv.aruco.getPredefinedDictionary(cv.aruco.DICT_4X4_1000)
     parameters = cv.aruco.DetectorParameters_create()
     parameters.cornerRefinementMethod = eval('cv.aruco.' + corner_refine)
 
-    im = cv.imread(filename)
+    im = cv.imread(im_filename)
     im = np.int16(im)
     im = im * (contrast/127+1) - contrast + brightness
     im = np.clip(im, 0, 255)
@@ -72,7 +102,16 @@ def plot_cams_3D(cams: Iterable[Camera],
                  scale: float=0.4,
                  renderer: str='browser') -> None:
     """
-        3D plot of list of cameras
+        Detects and draws arUco markers on image.
+
+        Parameters
+        ----------
+        cams : Iterable[Camera]
+            Cameras to plot.
+        scale : float
+            Scale of camera axis wrt the whole scene.
+        renderer : str
+            Plotly renderer options.
     """
     pos = np.zeros((len(cams), 3))
     axs = np.zeros((len(cams), 3, 3, 2))
@@ -99,20 +138,54 @@ def plot_cams_3D(cams: Iterable[Camera],
 def plot2D(ax,
            data: dict,
            view: str,
-           marker,
-           s,
-           c,
+           marker: str,
+           s : float,
+           c : tuple,
            invert: bool=False,
            idx: Iterable=None,
-           gauge: SE3=None) -> None:
+           left_gauge: SE3=None,
+           right_gauge: SE3=None) -> None:
     """
-        Plots 2D projection of translation 
-        component from dict of SE3 matrices
+        2D scatter plot of 3D rigid transformations.
+
+        Parameters
+        ----------
+        ax : matplotlib.axes._subplots.AxesSubplot
+            Matplotlib axes.
+        data : dict
+            Dictionary with data[n] = Camera or data[n] = SE3.
+        view : str
+            Axes to plot.
+            Example: "xy", "xz", "yz".
+        marker : str
+            Matplotlib marker.
+        s : float
+            Size of 2D points.
+        c : tuple
+            Color of 2D points.
+        invert : bool
+            Whether to invert the transformations.
+            Default: False
+        idx : Iterable
+            Keys of data to plot.
+            Default: None
+        left_gauge : SE3
+            Transform all poses via left_gauge @ pose.
+            If invert flag is True, inversion happens after.
+            Default: None.
+        right_gauge : SE3
+            Transform all poses via pose pose @ right_gauge.
+            If invert flag is True, inversion happens after.
+            Default: None.
     """
-    if gauge is None:
-        G = SE3(pose=np.eye(4))
+    if left_gauge is None:
+        GL = SE3(pose=np.eye(4))
     else:
-        G = gauge
+        GL = left_gauge
+    if right_gauge is None:
+        GR = SE3(pose=np.eye(4))
+    else:
+        GR = right_gauge
 
     if idx is None:
         idx = data.keys()
@@ -121,9 +194,9 @@ def plot2D(ax,
     for n in idx:
         item = data[n]
         if isinstance(item, Camera):
-            pose = item.extrinsics @ G
+            pose = GL @ item.extrinsics @ GR
         elif isinstance(item, SE3):
-            pose = item @ G
+            pose = GL @ item @ GR
 
         if invert:
             pose_xyz = pose.inv().t()
