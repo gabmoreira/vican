@@ -2,6 +2,8 @@
 VICAN uses a primal-dual bipartite PGO solver to 1) calibrate an object 2) estimate poses of a camera network. See the [extended paper](https://github.com/gabmoreira/vican/blob/main/extended_paper.pdf) for details. A Jupyter notebook is provided in `main.ipynb`
 The examples provided make use of a cube covered with 24 arUco markers. 
 
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1uPfFA2OxeWOk66P3x4Jc9WAWHoAcfqda?usp=drive_link)
+
 # Dataset
 Dataset is provided [here](https://drive.google.com/drive/folders/1mhuCHumKivLAIMCDNTsLONi4shw1OoBY?usp=sharing). 
 * **No images - preferred** The fastest way of using the dataset is by downloading only the already computed camera-marker pairwise pose dictionaries `small_room/cam_marker_edges.pt`, `large_shop/cam_marker_edges.pt`, `cube_calib/cam_marker_edges.pt`. For each scene, you will also find the ground-truth camera data in `small_room/cameras.json`, `large_shop/cameras.json` with (t, R, fx, fy, cx, cy, distortion, resolution_x, resolution_y).
