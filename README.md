@@ -42,7 +42,7 @@ To optimize a set of camera poses given the camera-object edges computed earlier
 * **lsqr_solver**: "conjugate_gradient" or "direct". Use the former for large graphs.
 
 # Pipeline for camera network calibration using arUco markers:
-The `bipartite_se3sync` and `object_bipartite_se3sync` are agnostic to the type of object used to calibrate the cameras. However, you should follow naming convention for the camera pose estimation folder `<root>/<timestep>/<camera_id>.jpg` and camera data stored in `<root>/cameras.json`. For object pose estimation you should have a folder with the naming convention `<objectroot>/<timestep>/<timestep>.jpg`. Then
+The `bipartite_se3sync` and `object_bipartite_se3sync` are agnostic to the type of object used to calibrate the cameras. However, you should follow naming convention for the camera pose estimation folder `<dataset>/<timestep>/<camera_id>.jpg` and camera data stored in `<dataset>/cameras.json`. For object pose estimation you should have a folder with the naming convention `<objectroot>/<timestep>/<timestep>.jpg`. Then
 * **Object pose estimation**: `object_dataset=Dataset(<objectroot>)` -> `edges=estimate_pose_mp(object_dataset,...)` -> `object_edges = object_bipartite_se3sync(src_edges=edges,...)`
 * **Camera pose estimation**: `dataset=Dataset(<root>)` -> `edges=estimate_pose_mp(dataset,...)` -> `bipartite_se3sync(src_edges=edges,constraints=object_edges,...)`
 The output is a dictionary with poses w.r.t. world frame.
