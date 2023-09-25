@@ -1,29 +1,36 @@
 # VICAN: Very Efficient Calibration Algorithm for Large Camera Networks
 VICAN uses a primal-dual bipartite PGO solver to 1) calibrate an object 2) estimate poses of a camera network. For a tutorial please check the provided Jupyter notebook `main.ipynb`
+The examples provided make use of a cube covered with 24 arUco markers. 
 
 # Dataset
-* In case you want to use the provided dataset, download the .blend files **here**. The examples provided make use of a cube covered with 24 arUco markers. The dataset can be rendered by calling the Python provided with the Blender installation `blender -b -noaudio <path to Blender file> --python render.py` (Blender 3.0.0)
-* Edit the render file accordingly to change number of ray-tracing samples, number of timesteps, number of cores. The rendered frames will be stored in the folder `<dataset name>_render`. The structure of the folder is `<dataset name>_render/<timestep>/<camera_id>.jpg`
-* Blender camera metadata (pose, intrinsics, resolution, clipping) will be stored as a dictionary in `<dataset name>_render/cameras.json`, at the beginning of the render.
-* ArUco cube pose per each time step will be stored in dictionaries `<dataset name>object_pose_<n>.json`. The n just specifies the number of the core that created that file.
+Dataset is provided [here](https://drive.google.com/drive/folders/1mhuCHumKivLAIMCDNTsLONi4shw1OoBY?usp=sharing). 
+* The fastest way of using the dataset is by downloading only the already computed camera-marker pairwise pose dictionaries **small_room/cam_marker_edges.pt**, **large_shop/cam_marker_edges.pt**, **cube_calib/cam_marker_edges.pt**. For each scene, you will also find the ground-truth camera data in **small_room/cameras.json**, **large_shop/cameras.json** with (t, R, fx, fy, cx, cy, distortion, resolution_x, resolution_y).
+* Instead, if you want to use the images, download **cube_calib.zip**, **large_shop.zip** and **small_room.zip**. Unzip the file as e.g. `unzip large_shop.zip`. Each zip contains all the images necessary to reproduce the pose estimation results. The structure of unzip folders is `<dataset name>_render/<timestep>/<camera_id>.jpg`. The ground-truth camera data dictionary is already included in each .zip.
+* You can also download the 3D model Blender files **large_shop.blend** and **small_room.blend** and run the rendering script yourself. **Beware that this takes several hours**. The dataset can be rendered by calling the Python provided with the Blender installation `blender -b -noaudio <path to Blender file> --python render.py` (Blender 3.0.0). Edit **render.py** according to the number of ray-tracing samples (default: 100), number of timesteps (5k for small_room, 10k for large_shop). Blender camera data will be stored as a dictionary in `<dataset name>_render/cameras.json`, at the beginning of the render. Cube pose per timestep will be stored in dictionaries `<dataset name>object_pose_<n>.json`. The n just specifies the number of the core that created that file.
 
-## Camera calibration
-To optimize a set of camera poses given the camera-object edges use `bipartite_se3sync`. The arguments are
+# Running the code
+The first step is object calibration. Once this is done we can optimize the camera pose estimates. See **main.ipynb** for details.
 
+## Object calibration
+* Start by calling `estimate_pose_mp` in order to compute camera-marker poses (via PnP) for a collection of images (you can avoid this step by downloading **cube_calib/cam_marker_edges.pt** directly). From here, to optimize the object marker poses call `object_bipartite_se3sync`. The arguments are similar to those used for camera calibration with a different naming convention i.e., the **src_edges** keys are of the form `(timestep, timestep_markerid)`, with one image per folder, where the marker id is the arUco marker ID, in the case of arUco markers.
+  
+## Camera pose estimation
+Start by calling `estimate_pose_mp` in order to compute camera-marker poses (via PnP). You can avoid this step by downloading **large_shop/cam_marker_edges.pt** or **small_room/cam_marker_edges.pt** directly.
+To optimize a set of camera poses given the camera-object edges computed earlier, call `bipartite_se3sync`. The arguments are
 * **src_edges**: a dictionary with keys (camera id, timestep_markerid), for example the edge ("4", "10_0") corresponds to the pose of marker with ID "0" detected at time t=0 by camera with ID "4". The values of the dataset are a dictionary containing the pose (SE3), reprojected_err (float), corners (np.ndarray), and im_filename (str). If you use the provided datasets or other datasets containing arUco markers you can call `estimate_pose_mp` to generate these edges from the image folder directly;
 * **noise_model_r**: function (float) that estimates concentration of Langevin noise from the edge dictionary;
 * **noise_model_t**: function (float) that estimates precision of Gaussian noise from from the edge dictionary;
 * **edge_filter**: functional (bool) that discards edges based on the edge dictionary;
 * **maxiter**: maximum primal-dual iterations;
-* **lsqr_solver**: "conjugate_gradient" or "direct". Use former for large graphs.
+* **lsqr_solver**: "conjugate_gradient" or "direct". Use the former for large graphs.
 
-## Object calibration
-* In order to optimize the relative poses between object nodes / markers use `object_bipartite_se3sync`. The arguments are similar to those used for camera calibration with a different naming convention i.e., the **src_edges** keys are of the form `(timestep, timestep_markerid)`, with one image per folder, where the marker id is the arUco marker ID, in the case of arUco markers. These can be obtained by video stream of the static object, by a moving camera.
-
-## Complete pipeline for camera network calibration using arUco markers:
-The `bipartite_se3sync` and `object_bipartite_se3sync` are agnostic to the type of object used to calibrate the cameras. If you want to run the code with arUco markers, you should have a folder following the naming convention for the camera pose estimation folder `<root>/<timestep>/<camera_id>.jpg` and camera data stored in `<root>/cameras.json`. For object pose estimation you should have a folder with the naming convention `<objectroot>/<timestep>/<timestep>.jpg`. Then
+# Pipeline for camera network calibration using arUco markers:
+The `bipartite_se3sync` and `object_bipartite_se3sync` are agnostic to the type of object used to calibrate the cameras. However, you should follow naming convention for the camera pose estimation folder `<root>/<timestep>/<camera_id>.jpg` and camera data stored in `<root>/cameras.json`. For object pose estimation you should have a folder with the naming convention `<objectroot>/<timestep>/<timestep>.jpg`. Then
 * **Object pose estimation**: `object_dataset=Dataset(<objectroot>)` -> `edges=estimate_pose_mp(object_dataset,...)` -> `object_edges = object_bipartite_se3sync(src_edges=edges,...)`
 * **Camera pose estimation**: `dataset=Dataset(<root>)` -> `edges=estimate_pose_mp(dataset,...)` -> `objectbipartite_se3sync(src_edges=edges,constraints=object_edges,...)`
+
+# General camera network calibration
+If you don't have arUco markers in your object, but have computed relative camera-object poses and know the relative transformations between faces/nodes of the object, then you can simply use `objectbipartite_se3sync(src_edges=edges,constraints=object_edges,...)`, provided the edges are in the same format as above.
 
 See `main.ipynb`for further details.
 
