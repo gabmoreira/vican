@@ -5,7 +5,7 @@ The examples provided make use of a cube covered with 24 arUco markers.
 # Dataset
 Dataset is provided [here](https://drive.google.com/drive/folders/1mhuCHumKivLAIMCDNTsLONi4shw1OoBY?usp=sharing). 
 * (Preferred) The fastest way of using the dataset is by downloading only the already computed camera-marker pairwise pose dictionaries **small_room/cam_marker_edges.pt**, **large_shop/cam_marker_edges.pt**, **cube_calib/cam_marker_edges.pt**. For each scene, you will also find the ground-truth camera data in **small_room/cameras.json**, **large_shop/cameras.json** with (t, R, fx, fy, cx, cy, distortion, resolution_x, resolution_y).
-* Instead, if you want to use the images, download **cube_calib.zip**, **large_shop.zip** and **small_room.zip**. Unzip the file as e.g. `unzip large_shop.zip`. Each zip contains all the images necessary to reproduce the pose estimation results. The structure of unzip folders is `<dataset name>_render/<timestep>/<camera_id>.jpg`. The ground-truth camera data dictionary is already included in each .zip.
+* Instead, if you want to use the images, download **cube_calib.zip**, **large_shop.zip** and **small_room.zip**. Unzip the file in place. Each zip contains all the images necessary to reproduce the pose estimation results. The structure of the folders is `<dataset>/<timestep>/<camera_id>.jpg`. For example `small_room/0/1.jpg` is an image captured by camera "1" at time 0. The ground-truth camera data dictionary is already included in each .zip.
 * You can also download the 3D model Blender files **large_shop.blend** and **small_room.blend** and run the rendering script yourself. **Beware that this takes several hours**. The dataset can be rendered by calling the Python provided with the Blender installation `blender -b -noaudio <path to Blender file> --python render.py` (Blender 3.0.0). Edit **render.py** according to the number of ray-tracing samples (default: 100), number of timesteps (5k for small_room, 10k for large_shop). Blender camera data will be stored as a dictionary in `<dataset name>_render/cameras.json`, at the beginning of the render. Cube pose per timestep will be stored in dictionaries `<dataset name>object_pose_<n>.json`. The n just specifies the number of the core that created that file.
 
 # Running the code
@@ -17,17 +17,25 @@ Clone the repository and download the [data](https://drive.google.com/drive/fold
  * small_room/
    * cameras.json
    * cam_marker_edges.pt
-   * ...
+   * 0/
+     * 1.jpg
+     * 2.jpg
+     * ...
+   * ... 
  * large_shop/
    * cameras.json
    * cam_marker_edges.pt
+   * 0/
+     * 182.jpg
+     * 184.jpg
+     * ...
    * ...
  * cube_calib/
    * cam_marker_edges.pt
+   * 0/
+     * 0.jpg
    * ... 
    
-The first step is object calibration. Once this is done we can optimize the camera pose estimates. See **main.ipynb** for details.
-
 ## Object calibration
 * Start by calling `estimate_pose_mp` in order to compute camera-marker poses (via PnP) for a collection of images (you can avoid this step by downloading **cube_calib/cam_marker_edges.pt** directly). From here, to optimize the object marker poses call `object_bipartite_se3sync`. The arguments are similar to those used for camera calibration with a different naming convention i.e., the **src_edges** keys are of the form `(timestep, timestep_markerid)`, with one image per folder, where the marker id is the arUco marker ID, in the case of arUco markers.
   
