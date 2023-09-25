@@ -20,7 +20,21 @@ class Camera(object):
                  resolution_x: int,
                  resolution_y: int):
         """
-            Stores camera information
+            Perspective camera.
+
+            Parameters
+            ----------
+            id : str
+                Unique camera identifier.
+            intrinsics : np.ndarray
+                Intrinsics 3x3 matrix.
+            distortion : np.ndarray
+                Distortion vector with size 12.
+            extrinsics: SE3
+                Rigid transformation with camera pose
+                in the world frame.
+            resolution_x : int
+            resolution_y : int
         """
         self.id = id
         self.intrinsics   = intrinsics.squeeze()
@@ -44,10 +58,26 @@ class Camera(object):
 
 def gen_marker_uid(im_filename: str, marker_id: str) -> str:
     """
-        Generate a unique id for a marker
+        Generate unique identifier for a marker 
+        detected in an image.
+
+        Parameters
+        ----------
+        im_filename : str
+            Image file name with format 
+            <timestep>/<camera_id>.jpg where the 
+            marker was detected.
+        m : str
+            Unique identifier of the detected marker.
+
+        Returns
+        -------
+        marker_uid : str
+            Marker unique ID with format <timestamp>_<m>
     """
     timestamp = im_filename.split('/')[-2] 
-    return timestamp + '_' + marker_id
+    marker_uid = timestamp + '_' + marker_id
+    return marker_uid
 
 
 def estimate_pose_worker(im_filename: str,
@@ -59,12 +89,39 @@ def estimate_pose_worker(im_filename: str,
                          brightness: int,
                          contrast: int) -> dict:
     """
-        Reads image from im_filename, estimates pose of all
-        arUco markers detected in the image and returns an edge
-        dictionary. 
-        Keys of the edge are (<camera_id>, <timestamp>_<marker_id>)
-        Values are dicts with pose (SE3), corners (np.ndarray), 
-        reprojection error (float) and image filename (str)
+        Reads image from im_filename, detects arUco
+        markers, estimates pose of all the detected 
+        markers and returns an edge dictionary. 
+
+        NOTE: estimate_pose_mp is the parallel version.
+
+        Parameters
+        ----------
+        im_filename : str
+            Image file name with format  
+            <timestep>/<camera_id>.jpg.
+        cam : Camera
+            Camera corresponding to image im_filename.
+        aruco: str
+            OpenCV arUco dictionary.
+        marker_size: float
+            Real size of arUco markers.
+        corner_refine: str
+            See OpenCV corner refinement options. 
+        flags: str
+            Method to solve PnP - See OpenCV.
+        brightness: int
+            Image brightness preprocessing.
+        contrast: int
+            Image contrast preprocessing.
+
+        Returns
+        -------
+        output : dict
+            Camera-marker edge dictionary. Keys are tuples
+            (<camera_id>, <timestamp>_<marker_id>).
+            Values are dicts with "pose" (SE3), "corners" (np.ndarray), 
+            "reprojected_err" (float) and "im_filename" (str).
     """
     dictionary = cv.aruco.Dictionary_get(eval('cv.aruco.' + aruco))
     parameters = cv.aruco.DetectorParameters_create()
@@ -140,14 +197,44 @@ def estimate_pose_mp(im_filenames: Iterable[str],
                      flags: str,
                      marker_ids: Iterable[str]) -> dict:
     """
-        Multiprocessing pool of estimate_pose_worker. Iterates
-        through all images provided in im_filenames, detects arUco
-        markers and returns dictionary. 
+        Multiprocessing pool of estimate_pose_worker. 
+        Iterates through all image filenames provided in im_filenames,
+        detects arUco markers and returns edge dictionary. 
         Keys are (<camera_id>, <timestamp>_<marker_id>)
-        Values are dicts with pose (SE3), corners (np.ndarray), 
-        reprojection error (float) and image filename (str)
+        Values are dicts with "pose" (SE3), "corners" (np.ndarray), 
+        "reprojected_err" (float) and "im_filename" (str)
 
-        im_filenames and cams should be 1-to-1 correspondence
+        NOTE: im_filenames and cams should be 1-to-1 correspondence.
+
+        Parameters
+        ----------
+        im_filenames : Iterable[str]
+            Image filenames name with format  
+            <timestep>/<camera_id>.jpg.
+        cams : Iterable[Camera]
+            Cameras corresponding to images from im_filenames.
+        aruco: str
+            OpenCV arUco dictionary.
+        marker_size: float
+            Real size of arUco markers.
+        corner_refine: str
+            See OpenCV corner refinement options. 
+        flags: str
+            Method to solve PnP - See OpenCV.
+        brightness: int
+            Image brightness preprocessing.
+        contrast: int
+            Image contrast preprocessing.
+        marker_ids: Iterable[str]
+            Which marker IDs to detected.
+
+        Returns
+        -------
+        output : dict
+            Camera-marker edge dictionary. Keys are tuples
+            (<camera_id>, <timestamp>_<marker_id>).
+            Values are dicts with "pose" (SE3), "corners" (np.ndarray), 
+            "reprojected_err" (float) and "im_filename" (str).
     """
     assert len(im_filenames) == len(cams)
     print("\nMarker detection")

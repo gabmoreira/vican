@@ -10,19 +10,39 @@ from scipy.stats import vonmises
 from typing import Iterable
 
 
-def langevin(k_r: float) -> np.ndarray:
+def langevin(k: float) -> np.ndarray:
     """
-        SO(3) samples from isotropic Langevin distribution
+        SO(3) samples from isotropic Langevin distribution.
+
+        Parameters
+        ----------
+        k : float
+            Concentration parameter.
+
+        Returns
+        -------
+        R : np.ndarray
+            3x3 rotation matrix.
     """
     vec_r = np.random.normal(0,1,size=(3,))
-    vec_r = vonmises.rvs(k_r) * vec_r / np.linalg.norm(vec_r, ord=2)
+    vec_r = vonmises.rvs(k) * vec_r / np.linalg.norm(vec_r, ord=2)
     R = cv.Rodrigues(vec_r)[0]
     return R
 
 
 def rotx(theta: float) -> np.ndarray:
     """
-        Returns rotation around (1,0,0) of theta rads
+        SO(3) rotation around x-axis.
+
+        Parameters
+        ----------
+        theta : float
+            angle in radians.
+
+        Returns
+        -------
+        R : np.ndarray
+            3x3 rotation matrix.
     """
     c = np.cos(theta)
     s = np.sin(theta)
@@ -34,7 +54,17 @@ def rotx(theta: float) -> np.ndarray:
 
 def roty(theta: float) -> np.ndarray:
     """
-        Returns rotation around (0,1,0) of theta rads
+        SO(3) rotation around y-axis.
+
+        Parameters
+        ----------
+        theta : float
+            angle in radians.
+
+        Returns
+        -------
+        R : np.ndarray
+            3x3 rotation matrix.
     """
     c = np.cos(theta)
     s = np.sin(theta)
@@ -46,7 +76,17 @@ def roty(theta: float) -> np.ndarray:
 
 def rotz(theta: float) -> np.ndarray:
     """
-        Returns rotation around (0,0,1) of theta rads
+        SO(3) rotation around z-axis.
+
+        Parameters
+        ----------
+        theta : float
+            angle in radians.
+
+        Returns
+        -------
+        R : np.ndarray
+            3x3 rotation matrix.
     """
     c = np.cos(theta)
     s = np.sin(theta)
@@ -58,46 +98,112 @@ def rotz(theta: float) -> np.ndarray:
 
 def rad2deg(rad: float) -> float:
     """
-        Radians to degrees
+        Radians to degrees.
+
+        Parameters
+        ----------
+        rad : float
+            angle in radians.
+
+        Returns
+        -------
+        deg : float
+            angle in degrees.
     """
-    return rad * 180.0 / np.pi
+    deg = rad * 180.0 / np.pi
+    return deg
 
 
 def deg2rad(deg: float) -> float:
     """
-        Degrees to radians
+        Degrees to radians.
+
+        Parameters
+        ----------
+        deg : float
+            angle in degrees.
+
+        Returns
+        -------
+        rad : float
+            angle in radians.
     """
-    return deg * np.pi / 180.0
+    rad = deg * np.pi / 180.0
+    return rad
 
 
 def angle(r: np.ndarray) -> float:
     """
-        Angle of rotation matrix r1
+        Angle in degrees of a 3x3 SO(3) rotation.
+
+        Parameters
+        ----------
+        r : np.ndarray
+            3x3 SO(3) rotation matrix.
+
+        Returns
+        -------
+        deg : float
+            angle in degrees.
     """
     rad = np.arccos( np.clip((np.trace(r)-1)/2, a_min=-1, a_max=1) )
-    return rad2deg(rad)
+    deg = rad2deg(rad)
+    return deg
 
 
 def distance_SO3(r1: np.ndarray, r2: np.ndarray) -> float:
     """
-        Angle between rotations r1 and r2
+        Angle between two 3x3 SO(3) rotations.
+
+        Parameters
+        ----------
+        r1 : np.ndarray
+            3x3 SO(3) rotation matrix.
+        r2 : np.ndarray
+            3x3 SO(3) rotation matrix.
+
+        Returns
+        -------
+        deg : float
+            angle in degrees.
     """
     assert r1.shape == (3,3) and r2.shape == (3,3)
-    return angle(r1.T @ r2)
+    deg = angle(r1.T @ r2)
+    return deg
 
 
 def project_SO3(x: np.ndarray) -> np.ndarray:
     """
-        Orthogonally projects 3x3 matrix to SO(3)
+        Orthogonally projects 3x3 matrix to SO(3).
+
+        Parameters
+        ----------
+        x : np.ndarray
+            3x3 matrix.
+
+        Returns
+        -------
+        r : np.ndarray
+            SO(3) rotation matrix.
     """
     u, _, vh = np.linalg.svd(x)
-    return u @ np.diag([1.0,1.0,np.linalg.det(u @ vh)]) @ vh
+    r = u @ np.diag([1.0,1.0,np.linalg.det(u @ vh)]) @ vh
+    return r
 
 
 class SE3(object):
     def __init__(self, **kwargs):
         """
-            Stores SE(3) (rigid) transformation
+            3D rigid transformation
+
+            Parameters
+            ----------
+            pose : np.ndarray
+                4x4 SE(3) matrix.
+            t : np.ndarray
+                Translation vector
+            R : np.ndarray
+                3x3 SO(3) matrix
         """
         if 'pose' in kwargs.keys():
             self._pose = kwargs['pose'].astype(np.float32)
@@ -128,7 +234,7 @@ class SE3(object):
 
     def inv(self):
         """
-            Inverse of SE(3) transform 
+            Inverse of SE(3) transformation
         """
         inverted = np.zeros_like(self._pose)
         inverted[-1,-1] += 1
@@ -158,8 +264,21 @@ class SE3(object):
 def optimize_gauge_SO3(poses_a: Iterable[np.ndarray],
                        poses_b: Iterable[np.ndarray]) -> np.ndarray:
     """
-        Finds SO(3) rotation R that aligns poses_a 
-        with poses_b as in min sum|| pose_a - pose_b @ R ||
+        Optimze SO(3) rotation (gauge_r) that aligns 
+        poses_a with poses_b according to 
+        poses_a - poses_b @ gauge_r.
+
+        Parameters
+        ----------
+        poses_a : Iterable[np.ndarray]
+            Collection of 3x3 rotation matrices.
+        poses_b : Iterable[np.ndarray]
+            Collection of 3x3 rotation matrices.
+
+        Returns
+        -------
+        gauge_r : np.ndarray
+            SO(3) rotation matrix.
     """
     assert len(poses_a) == len(poses_b)
 
@@ -168,15 +287,28 @@ def optimize_gauge_SO3(poses_a: Iterable[np.ndarray],
         sum += a.T @ b
     
     u, _, vh = np.linalg.svd(sum.T)
-    gauge_r = u @ vh
+    gauge_r = u @ np.diag([1,1,np.linalg.det(u @ vh)]) @ vh
     return gauge_r
 
 
 def optimize_gauge_SE3(poses_a: Iterable[SE3],
                        poses_b: Iterable[SE3]) -> SE3:
     """
-        Finds SE(3) transformation G that aligns poses_a 
-        with poses_b as in min sum|| pose_a - pose_b @ G ||
+        Optimize SE(3) transformation (gauge) that 
+        aligns poses_a with poses_b according to 
+        poses_a - poses_b @ gauge.
+
+        Parameters
+        ----------
+        poses_a : Iterable[SE3]
+            Collection of SE3 transformations.
+        poses_b : Iterable[SE3]
+            Collection of SE3 transformations.
+
+        Returns
+        -------
+        gauge : np.ndarray
+            SE(3) transformation.
     """
     assert len(poses_a) == len(poses_b)
 
@@ -187,7 +319,7 @@ def optimize_gauge_SE3(poses_a: Iterable[SE3],
         gauge_t += b.R().T @ (a.t() - b.t()).reshape((-1,1))
     
     u, _, vh = np.linalg.svd(sum.T)
-    gauge_r = u @ vh
+    gauge_r = u @ np.diag([1,1,np.linalg.det(u @ vh)]) @ vh
     gauge = SE3(R=gauge_r, t=gauge_t / len(poses_a))
 
     return gauge
