@@ -2,14 +2,13 @@
 VICAN uses a primal-dual bipartite PGO solver to 1) calibrate an object 2) estimate poses of a camera network. See the [extended paper](https://github.com/gabmoreira/vican/blob/main/docs/extended_paper.pdf) for details. A Jupyter notebook is provided in `main.ipynb` exemplifying the usage of VICAN. A short tutorial is also here: [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1uPfFA2OxeWOk66P3x4Jc9WAWHoAcfqda?usp=drive_link)
 
 
-
 ![Large shop scene (renders, 3D, camera locations)](https://github.com/gabmoreira/vican/blob/main/docs/large_shop.png?raw=true)
 
 
 # Dataset
 Dataset is provided [here](https://drive.google.com/drive/folders/1mhuCHumKivLAIMCDNTsLONi4shw1OoBY?usp=sharing). 
 * **No images - preferred** The fastest way of using the dataset is by downloading only the already computed camera-marker pairwise pose dictionaries `small_room/cam_marker_edges.pt`, `large_shop/cam_marker_edges.pt`, `cube_calib/cam_marker_edges.pt`. For each scene, you will also find the ground-truth camera data in `small_room/cameras.json`, `large_shop/cameras.json` with (t, R, fx, fy, cx, cy, distortion, resolution_x, resolution_y). See Colab Notebook for an example.
-* **Using the images** Instead, if you want to use the images, download `cube_calib.tar.xy`, `large_shop.tar.xy` and `small_room.tar.xy`. Extract the files. Each zip contains all the images necessary to reproduce the pose estimation results. The structure of the folders is `<dataset>/<timestep>/<camera_id>.jpg`. For example `small_room/0/1.jpg` is an image captured by camera "1" at time 0. The ground-truth camera data dictionary is already included in each .tar. 
+* **Using the images** Instead, you may download `cube_calib.tar.xy`, `large_shop.tar.xy` and `small_room.tar.xy`. These contain all the images necessary to reproduce the pose estimation results. The structure of the folders is `<dataset>/<timestep>/<camera_id>.jpg`. For example `small_room/0/1.jpg` is an image captured by camera "1" at time 0. The ground-truth camera data dictionary is already included in each .tar. 
 * **Using 3D models** You can also download the 3D model Blender files `large_shop.blend` and `small_room.blend` and run the rendering script yourself. **Beware that this takes several hours**. The dataset can be rendered by calling the Python provided with the Blender installation `blender -b -noaudio <path to Blender file> --python render.py` (Blender 3.0.0). Edit `render.py` according to the number of ray-tracing samples (default: 100), number of timesteps (5k for small_room, 10k for large_shop). Blender camera data will be stored as a dictionary in `<dataset name>_render/cameras.json`, at the beginning of the render. Cube pose per timestep will be stored in dictionaries `<dataset name>object_pose_<n>.json`. The n just specifies the number of the core that created that file.
 
 # Reproducing the results
