@@ -55,11 +55,11 @@ The output of `bipartite_se3sync` is a dictionary with the camera IDs as keys an
 # Pipeline for camera network calibration using arUco markers:
 You may use the same pipeline for other datasets of static cameras + moving objects covered with markers. Just make sure to use the same format for the camera pose estimation folder: `<dataset>/<timestep>/<camera_id>.jpg` and have camera data stored in `<dataset_root>/cameras.json`. For object calibration your folder should follow the format `<object_root>/<timestep>/<timestep>.jpg`. Then:
 * **Object pose estimation**: `object_dataset=Dataset(root=<object_root>)` -> `edges=estimate_pose_mp(object_dataset,...)` -> `object_edges = object_bipartite_se3sync(src_edges=edges,...)`
-* **Camera pose estimation**: `dataset=Dataset(root=<dataset_root>)` -> `edges=estimate_pose_mp(dataset,...)` -> `bipartite_se3sync(src_edges=edges,constraints=object_edges,...)`
+* **Camera pose estimation**: `dataset=Dataset(root=<dataset_root>)` -> `edges=estimate_pose_mp(dataset,...)` -> `bipartite_se3sync(src_edges=edges, constraints=object_edges,...)`
 The output is a dictionary with poses w.r.t. world frame.
 
 # General camera network calibration
-If you don't have arUco markers in your object, but have relative camera-object poses computed, for a moving object and static cameras, and know the relative transformations between faces/nodes of the object, then you can simply use `objectbipartite_se3sync(src_edges=edges,constraints=object_edges,...)`, provided the camera-object edges are in the same format as above.
+The optimization step is applicable to any setup consisting of a moving object and static cameras. Provided you have object poses relative to a subset of the cameras at each timestep in the same format as above, and provided you know the relative transformations between faces/nodes of the object, then you can simply use `bipartite_se3sync(src_edges=edges, constraints=object_edges,...)` to optimize for the camera poses.
 
 See `main.ipynb` for a tutorial.
 
