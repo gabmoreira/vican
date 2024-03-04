@@ -67,4 +67,4 @@ The optimization step is applicable to any setup consisting of a moving object a
 
 See `main.ipynb` for a tutorial.
 
-Sep, 2023
+March, 2023
