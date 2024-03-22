@@ -67,4 +67,8 @@ The optimization step is applicable to any setup consisting of a moving object a
 
 See `main.ipynb` for a tutorial.
 
-March, 2023
+March, 2024
+
+<p align="center">
+  <img src="https://github.com/gabmoreira/vican/blob/main/docs/prr.jpg?raw=true" />
+</p>
