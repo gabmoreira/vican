@@ -15,6 +15,133 @@ from tqdm.auto import tqdm
 from .geometry import SE3, project_SO3
 
 
+def bipartite_so3sync(src_edges: dict,
+                      constraints: dict,
+                      noise_model: Callable, 
+                      edge_filter: Callable,
+                      maxiter: int,
+                      dtype=np.float32) -> dict:
+    """
+        SO(3) synchronization in bipartite graphs
+        with node constraints
+    """
+    src_nodes = np.unique([n for e in src_edges.keys() for n in e])
+    print("Received graph with {} nodes {} edges".format(len(src_nodes), len(src_edges)))
+    print("Applying constraints...")
+    edges = {}
+
+    root = str(min(list(constraints.keys())))
+
+    for e, v in src_edges.items():
+        if edge_filter(v):
+            c = 'c' + e[0]               # camera id
+            t = 't' + e[1].split('_')[0] # timestamp
+
+            marker_id = e[1].split('_')[1]
+            r_m = constraints[marker_id].R()
+            r_0 = constraints[root].R()
+
+            k_r   = noise_model(v)
+            kr_c0 = k_r * v['pose'].R() @ r_m @ r_0.T
+
+            if (c,t) in edges.keys():
+                edges[c,t]['pose']._R += kr_c0
+                edges[c,t]['k_r'] += k_r
+            else:
+                edges[c,t] = {'pose': SE3(R=kr_c0, t=np.zeros(3)),
+                              'k_r' : k_r}
+
+    nodes = np.unique([n for e in edges.keys() for n in e])
+    node2idx = {n:i for i,n in enumerate(nodes)}
+    n = len(nodes)
+    m = len(edges)
+    print("New SO(3) graph contains {} nodes {} edges".format(n,m))
+    print("Building sparse adjacency and SO(3) connection Laplacian...")
+    
+    # Adjacency matrix triplets
+    a_i    = np.zeros(2*m, dtype=np.int32)
+    a_j    = np.zeros(2*m, dtype=np.int32)
+    a_data = np.zeros(2*m, dtype=dtype)
+    # SO(3) pairwise block matrix triplets
+    b_i    = np.zeros(18*m, dtype=np.int32)
+    b_j    = np.zeros(18*m, dtype=np.int32)
+    b_data = np.zeros(18*m, dtype=dtype)
+
+    a, b = 0, 0
+    for (c,t), e in edges.items():
+        i = node2idx[c]
+        j = node2idx[t]
+        a_i[a]      = i
+        a_j[a]      = j
+        a_i[a+1]    = j
+        a_j[a+1]    = i
+        a_data[a]   = e['k_r']
+        a_data[a+1] = e['k_r']
+        
+        b_i[b:b+9]       = 3*i + np.array([0,0,0,1,1,1,2,2,2], dtype=np.int32)
+        b_j[b:b+9]       = 3*j + np.array([0,1,2,0,1,2,0,1,2], dtype=np.int32)
+        b_i[b+9:b+18]    = 3*j + np.array([0,0,0,1,1,1,2,2,2], dtype=np.int32)
+        b_j[b+9:b+18]    = 3*i + np.array([0,1,2,0,1,2,0,1,2], dtype=np.int32)
+        b_data[b:b+9]    = e['pose'].R().flatten()
+        b_data[b+9:b+18] = e['pose'].R().T.flatten()
+        
+        b += 18
+        a += 2
+
+    pairwise_r = csr_matrix((b_data,(b_i,b_j)), shape=(3*n,3*n))
+    adj        = csr_matrix((a_data,(a_i,a_j)), shape=(n,n))
+
+    # Initialize lambda (dual variable)
+    deg = np.asarray(adj.sum(axis=1)).squeeze()
+    lbd_diag = np.zeros(n*3, dtype=dtype)
+    for i in range(n):
+        lbd_diag[i*3:i*3+3] += deg[i]
+    lbd = diags(lbd_diag, 0)
+
+    for it in range(maxiter):
+        laplacian = lbd - pairwise_r
+        laplacian = 0.5 * (laplacian.T + laplacian) 
+
+        print("Iter {}\n\tComputing eigenvalues...".format(it))
+        evals, evecs = eigs(laplacian, k=5, sigma=-1e-6)
+        evals = np.real(evals)
+        evecs = np.real(evecs)
+        print("\tSO(3) Eigenvalues: {}".format(evals))
+        print("\tSO(3) Eigengap:    {:1.3e}".format(abs(evals[3]/evals[2])))
+
+        # Update R
+        r = evecs[:,:3] @ np.linalg.inv(evecs[:3,:3])
+
+        for i in range(n):
+            r[i*3:i*3+3,:] = project_SO3(r[i*3:i*3+3,:])
+            
+        # Update lambda
+        RtildeR = pairwise_r @ r
+        
+        lbd_i    = np.zeros(n*9)
+        lbd_j    = np.zeros(n*9)
+        lbd_data = np.zeros(n*9)
+        
+        for i in range(evecs.shape[0] // 3):
+            u, s, vt = np.linalg.svd(RtildeR[i*3:i*3+3,:])
+            r[i*3:i*3+3,:] = u @ vt
+            
+            lbd_i[i*9:i*9+9] += 3*i + np.array([0,0,0,1,1,1,2,2,2], dtype=np.int32)
+            lbd_j[i*9:i*9+9] += 3*i + np.array([0,1,2,0,1,2,0,1,2], dtype=np.int32)
+            lbd_data[i*9:i*9+9] += (u @ np.diag(s) @ u.T).flatten()
+            
+        lbd = csr_matrix((lbd_data,(lbd_i,lbd_j)), shape=(3*n,3*n))
+        
+    nodes = np.unique([n for e in edges.keys() for n in e])
+    r_est = {}
+    for i, node in enumerate(nodes):
+        if node[0] == 'c':
+            r_est[node[1:]] = r[i*3:i*3+3,:]
+        elif  node[0] == 't':
+            r_est[node[1:] + '_0'] = r[i*3:i*3+3,:]
+    return r_est
+    
+
 def large_bipartite_so3sync(src_edges: dict,
                             constraints: dict,
                             noise_model: Callable, 
@@ -66,6 +193,8 @@ def large_bipartite_so3sync(src_edges: dict,
     """
     src_nodes = np.unique([n for e in src_edges.keys() for n in e])
 
+    root = str(min(list(constraints.keys())))
+    print(f"I'm here dumbass {root}")
     print("Received graph with {} nodes {} edges".format(len(src_nodes),
                                                          len(src_edges)))
     
@@ -73,13 +202,14 @@ def large_bipartite_so3sync(src_edges: dict,
     start = time.time()
     edges = {}
     for e, v in src_edges.items():
+        print(e)
         if edge_filter(v):
             c = 'c' + e[0]                   # camera id
             t = 't' + e[1].split('_')[0]     # timestamp
             marker_id = e[1].split('_')[1]   # id of the object marker
 
             r_m = constraints[marker_id].R()
-            r_0 = constraints['0'].R()
+            r_0 = constraints[root].R()
 
             k_r   = noise_model(v)
             kr_c0 = k_r * v['pose'].R() @ r_m.T @ r_0
@@ -280,6 +410,8 @@ def bipartite_se3sync(src_edges: dict,
             SE3 poses of the static cameras and of the object over time
             wrt world frame.
     """
+    root = str(min(list(constraints.keys())))
+
     r_est = large_bipartite_so3sync(src_edges,
                                     constraints,
                                     noise_model_r,
@@ -318,8 +450,8 @@ def bipartite_se3sync(src_edges: dict,
 
         k_t = noise_model_t(v)
 
-        r_0_marker_id = constraints['0'].R().T @ constraints[marker_id].R()
-        t_marker_id_0 = (constraints[marker_id].inv() @ constraints['0']).t()
+        r_0_marker_id = constraints[root].R().T @ constraints[marker_id].R()
+        t_marker_id_0 = (constraints[marker_id].inv() @ constraints[root]).t()
 
         tilde_c_0 = k_t * (r_est[c] @ v['pose'].t() + \
                            r_est[t + '_0'] @ r_0_marker_id @ t_marker_id_0)
@@ -391,15 +523,18 @@ def object_bipartite_se3sync(src_edges: dict,
             are the IDs of object nodes / markers.
     """
     edges = {}
+    root = str(min([int(e[1].split('_')[1]) for e in src_edges.keys()]))
+
     for k, v in src_edges.items():
         t, marker_id = k[1].split('_')
-        edges[marker_id, t + '_0'] = {'pose'            : v['pose'].inv(),
-                                      'corners'         : v['corners'],
-                                      'reprojected_err' : v['reprojected_err'],
-                                      'im_filename'     : v['im_filename']}
+        edges[marker_id, t + '_' + root] = {'pose'            : v['pose'].inv(),
+                                            'corners'         : v['corners'],
+                                            'reprojected_err' : v['reprojected_err'],
+                                            'im_filename'     : v['im_filename']}
         
+    
     out = bipartite_se3sync(edges,
-                            constraints={'0' : SE3(pose=np.eye(4))},
+                            constraints={root : SE3(pose=np.eye(4))},
                             noise_model_r=noise_model_r,
                             noise_model_t=noise_model_t,
                             edge_filter=edge_filter,
