@@ -194,7 +194,6 @@ def large_bipartite_so3sync(src_edges: dict,
     src_nodes = np.unique([n for e in src_edges.keys() for n in e])
 
     root = str(min(list(constraints.keys())))
-    print(f"I'm here dumbass {root}")
     print("Received graph with {} nodes {} edges".format(len(src_nodes),
                                                          len(src_edges)))
     
@@ -202,7 +201,6 @@ def large_bipartite_so3sync(src_edges: dict,
     start = time.time()
     edges = {}
     for e, v in src_edges.items():
-        print(e)
         if edge_filter(v):
             c = 'c' + e[0]                   # camera id
             t = 't' + e[1].split('_')[0]     # timestamp
