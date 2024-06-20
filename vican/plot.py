@@ -36,9 +36,6 @@ def draw_marker(im: np.ndarray,
     marker_corners = marker_corners.reshape((4, 2))
     top_l, top_r, bottom_r, bottom_l = marker_corners.astype(np.int32)
 
-    im = cv.cvtColor(im, cv.COLOR_BGR2GRAY)
-    im = np.stack((im,im,im), axis=2)
-
     cv.line(im, top_l, top_r, (0, 255, 0), 1)
     cv.line(im, top_r, bottom_r, (0, 255, 0), 1)
     cv.line(im, bottom_r, bottom_l, (0, 255, 0), 1)
@@ -52,8 +49,9 @@ def draw_marker(im: np.ndarray,
 
 
 def detect_and_draw(im_filename: str,
-                    brightness: int=140,
-                    contrast: int=130,
+                    aruco: str,
+                    brightness: int=0,
+                    contrast: int=0,
                     corner_refine: str='CORNER_REFINE_APRILTAG') -> np.ndarray:
     """
         Detects and draws arUco markers on image.
@@ -74,19 +72,28 @@ def detect_and_draw(im_filename: str,
         im : np.ndarray 
             Image with marker drawn.
     """
-    dictionary = cv.aruco.getPredefinedDictionary(cv.aruco.DICT_4X4_1000)
+    dictionary = cv.aruco.Dictionary_get(eval('cv.aruco.' + aruco))
     parameters = cv.aruco.DetectorParameters_create()
-    parameters.cornerRefinementMethod = eval('cv.aruco.' + corner_refine)
+    if corner_refine is not None:
+        parameters.cornerRefinementMethod = eval('cv.aruco.' + corner_refine)
+    parameters.cornerRefinementMinAccuracy = 0.05
+    parameters.adaptiveThreshConstant = 10
+    parameters.cornerRefinementMaxIterations = 50
+    parameters.adaptiveThreshWinSizeStep = 5
+    parameters.adaptiveThreshWinSizeMax = 35
 
     im = cv.imread(im_filename)
     im = np.int16(im)
-    im = im * (contrast/127+1) - contrast + brightness
+
+    if contrast != 0:
+        im = im * (contrast/127+1) - contrast
+
+    im += brightness
     im = np.clip(im, 0, 255)
     im = np.uint8(im)
     
     marker_corners, marker_ids, _ = cv.aruco.detectMarkers(im,
-                                                           dictionary,
-                                                           parameters)
+                                                           dictionary)
     marker_ids = list(map(str, marker_ids.flatten()))
 
     im = cv.cvtColor(im, cv.COLOR_BGR2GRAY)
