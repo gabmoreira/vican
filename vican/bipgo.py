@@ -6,7 +6,7 @@
 import time
 import numpy as np
 
-from scipy.sparse import csr_matrix, diags
+from scipy.sparse import csr_matrix, diags, csgraph
 from scipy.sparse.linalg import eigs, lsqr, cg
 
 from typing import Callable
@@ -222,6 +222,30 @@ def large_bipartite_so3sync(src_edges: dict,
                 
     print("({:.3f}s).".format(time.time()-start))
 
+    nodes = np.unique([n for e in edges.keys() for n in e])
+    nodes2idx = {n : i for i, n in enumerate(nodes)}
+    graph = np.zeros((len(nodes), len(nodes)), dtype=np.int32)
+    for (c, t) in edges.keys():
+        graph[nodes2idx[c], nodes2idx[t]] += 1
+        graph[nodes2idx[t], nodes2idx[c]] += 1
+    
+    print(f"Separated components: {csgraph.connected_components(graph, directed=False)[0]}")
+    to_filter = np.where(csgraph.connected_components(graph, directed=False)[1] != 0)[0]
+    to_filter = [nodes[i] for i in to_filter]
+    print(f"Filtering {len(to_filter)} nodes: {to_filter}")
+
+    for n in to_filter:
+        for (c, t) in list(edges.keys()):
+            if c == n or t == n:
+                del edges[c,t]
+
+    new_src_edges = {}
+    for e, v in list(src_edges.items()):
+        cam = 'c' + e[0]
+        timestep = 't' + e[1].split('_')[0]
+        if cam not in to_filter and timestep not in to_filter:
+            new_src_edges[e] = v
+
     nodes          = np.unique([n for e in edges.keys() for n in e])
     cam_nodes      = [n for n in nodes if n[0] == 'c']
     time_nodes     = [n for n in nodes if n[0] == 't']
@@ -347,7 +371,7 @@ def large_bipartite_so3sync(src_edges: dict,
     for t, i in time_node2idx.items():
         out[t[1:] + '_0'] = r_t[i*3:i*3+3,:].T
 
-    return out
+    return out, new_src_edges
 
 
 def bipartite_se3sync(src_edges: dict,
@@ -410,7 +434,7 @@ def bipartite_se3sync(src_edges: dict,
     """
     root = str(min(list(constraints.keys())))
 
-    r_est = large_bipartite_so3sync(src_edges,
+    r_est, src_edges = large_bipartite_so3sync(src_edges,
                                     constraints,
                                     noise_model_r,
                                     edge_filter,
